@@ -7,8 +7,8 @@ const Tracking = (() => {
 
   function map() {
     return `<div class="tracking-map">
-      <svg viewBox="0 0 400 240" role="img" aria-label="Illustrative route from the professional to the job destination">
-        <title>Sample ${Marketplace.city} journey</title>
+      <svg viewBox="0 0 400 240" role="img" aria-label="${t("Illustrative route from the professional to the job destination")}">
+        <title>${t("Sample Delhi journey")}</title>
         <rect width="400" height="240" class="map-background"/>
         <path class="map-block" d="M9 9h108v58H9zM146 10h92v56h-92zM270 10h117v76H270zM13 90h104v73H13zM151 154h86v72h-86zM272 119h110v53H272z"/>
         <path class="map-park" d="M152 89h84v35h-84zM12 200h103v28H12zM270 188h78v40h-78z"/>
@@ -29,9 +29,9 @@ const Tracking = (() => {
           <circle class="map-marker" r="7"/>
         </g>
       </svg>
-      <div class="map-tools" aria-label="Map zoom">
-        <button class="icon-btn" type="button" data-action="map-zoom-in" aria-label="Zoom in on map">+</button>
-        <button class="icon-btn" type="button" data-action="map-recenter" aria-label="Reset map view">↺</button>
+      <div class="map-tools" aria-label="${t("Map zoom")}">
+        <button class="icon-btn" type="button" data-action="map-zoom-in" aria-label="${t("Zoom in on map")}">+</button>
+        <button class="icon-btn" type="button" data-action="map-recenter" aria-label="${t("Reset map view")}">↺</button>
       </div>
     </div>`;
   }
@@ -39,12 +39,12 @@ const Tracking = (() => {
   function render(job, role) {
     if (job.status !== "en_route") return "";
     const controls = role === "pro" ? `<div class="action-row tracking-controls">
-      <button class="btn primary" type="button" data-action="tracking" data-change="play" data-job="${job.id}" data-pro="${job.proId}" data-track-play>Start demo tracking</button>
-      <button class="btn secondary" type="button" data-action="tracking" data-change="pause" data-job="${job.id}" data-pro="${job.proId}" data-track-pause hidden>Pause tracking</button>
-      <button class="btn secondary" type="button" data-action="tracking" data-change="replay" data-job="${job.id}" data-pro="${job.proId}" data-track-replay hidden>Replay route</button>
+      <button class="btn primary" type="button" data-action="tracking" data-change="play" data-job="${job.id}" data-pro="${job.proId}" data-track-play>${t("Start demo tracking")}</button>
+      <button class="btn secondary" type="button" data-action="tracking" data-change="pause" data-job="${job.id}" data-pro="${job.proId}" data-track-pause hidden>${t("Pause tracking")}</button>
+      <button class="btn secondary" type="button" data-action="tracking" data-change="replay" data-job="${job.id}" data-pro="${job.proId}" data-track-replay hidden>${t("Replay route")}</button>
     </div>` : "";
     return `<section class="panel tracking-panel" data-track-job="${job.id}">
-      <div class="tracking-heading"><h2>Live location</h2><span class="neutral-tag">Simulation</span></div>
+      <div class="tracking-heading"><h2>${t("Live location")}</h2><span class="neutral-tag">${t("Simulation")}</span></div>
       ${map()}
       <div class="tracking-meta"><strong data-track-status role="status"></strong><span data-track-eta></span></div>
       <p class="muted tracking-update" data-track-update></p>
@@ -59,14 +59,14 @@ const Tracking = (() => {
       const position = Marketplace.position(job);
       const status = panel.querySelector("[data-track-status]");
       if (status.dataset.mode !== position.mode) {
-        status.textContent = labels[position.mode];
+        status.textContent = t(labels[position.mode]);
         status.dataset.mode = position.mode;
       }
       panel.querySelector("[data-track-eta]").textContent = position.eta === undefined ? ""
-        : position.eta === 0 ? "Sample route complete" : `Sample ETA ${position.eta} min`;
+        : position.eta === 0 ? t("Sample route complete") : t("Sample ETA {minutes} min", { minutes: position.eta });
       panel.querySelector("[data-track-update]").textContent = position.lastUpdate
-        ? `Last sample update ${time.format(position.lastUpdate)}`
-        : "The professional can start sharing a sample route from the contractor inbox.";
+        ? t("Last sample update {time}", { time: time.format(position.lastUpdate) })
+        : t("The professional can start sharing a sample route from the worker’s job page.");
       const marker = panel.querySelector("[data-map-marker]");
       marker.toggleAttribute("hidden", position.progress === undefined);
       if (position.progress !== undefined) {
@@ -77,7 +77,7 @@ const Tracking = (() => {
       const play = panel.querySelector("[data-track-play]");
       if (play) {
         play.hidden = !["paused", "unavailable"].includes(position.mode);
-        play.textContent = position.mode === "paused" ? "Resume tracking" : "Start demo tracking";
+        play.textContent = t(position.mode === "paused" ? "Resume tracking" : "Start demo tracking");
         panel.querySelector("[data-track-pause]").hidden = position.mode !== "live";
         panel.querySelector("[data-track-replay]").hidden = position.mode === "unavailable";
       }

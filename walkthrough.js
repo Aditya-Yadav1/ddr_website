@@ -15,14 +15,16 @@ const Walkthrough = (() => {
   let card;
   let frame;
   let onFinish;
+  let workerSteps;
   let previousDescription;
   const isolated = [];
   const resize = new ResizeObserver(schedule);
 
-  function start(source, finish) {
+  function start(source, finish, guide) {
     trigger = source;
     onFinish = finish;
     routes = ["#/"];
+    workerSteps = guide;
   }
 
   function isActive() { return routes.length > 0; }
@@ -44,8 +46,10 @@ const Walkthrough = (() => {
   function finish(restoreFocus = true) {
     clear();
     routes = [];
-    onFinish?.();
+    workerSteps = null;
+    const callback = onFinish;
     onFinish = null;
+    callback?.(restoreFocus);
     if (restoreFocus) {
       if (trigger?.isConnected && trigger.getClientRects().length) trigger.focus({ preventScroll: true });
       else document.querySelector("#content").focus({ preventScroll: true });
@@ -66,23 +70,27 @@ const Walkthrough = (() => {
   function sync(page, hash) {
     clear();
     if (!isActive()) return;
-    const step = pages.indexOf(page);
+    const step = workerSteps ? workerSteps.findIndex((item) => item[3] === hash) : pages.indexOf(page);
     if (step < 0) return finish(false);
     routes[step] = hash || "#/";
     routes.length = step + 1;
-    const [title, description, selector] = steps[step];
+    const sequence = workerSteps || steps;
+    const [title, description, selector] = sequence[step];
+    const nextRoute = workerSteps?.[step + 1]?.[3];
     const element = [...document.querySelectorAll(selector)].find((candidate) => candidate.getClientRects().length);
     layer = document.createElement("div");
     layer.className = "walkthrough";
     layer.innerHTML = `<div class="walkthrough-shade" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       <div class="walkthrough-ring" aria-hidden="true"></div>
       <section class="walkthrough-card" aria-labelledby="walkthrough-title" tabindex="-1">
-        <p class="walkthrough-progress">Step ${step + 1} of ${steps.length}</p>
-        <h2 id="walkthrough-title">${element ? title : "This step is unavailable"}</h2>
-        <p id="walkthrough-description">${element ? description : "Go back or close the walkthrough to keep browsing."}</p>
+        <p class="walkthrough-progress">${t("Step {step} of {total}", { step: step + 1, total: sequence.length })}</p>
+        <h2 id="walkthrough-title">${t(element ? title : "This step is unavailable")}</h2>
+        <p id="walkthrough-description">${t(element ? description : "Go back or close the walkthrough to keep browsing.")}</p>
         <div class="action-row">
-          ${step > 0 && routes[step - 1] ? `<a class="btn secondary" href="${routes[step - 1].replaceAll('"', "&quot;")}">Back</a>` : ""}
-          <button class="btn text-btn" type="button" data-action="skip-tour">Skip</button>
+          ${step > 0 && routes[step - 1] ? `<a class="btn secondary" href="${esc(routes[step - 1])}">${t("Back")}</a>` : ""}
+          ${nextRoute ? `<a class="btn primary" href="${esc(nextRoute)}">${t("Next")}</a>` : ""}
+          ${workerSteps && !nextRoute ? `<button class="btn primary" type="button" data-action="skip-tour">${t("Done")}</button>` : ""}
+          <button class="btn text-btn" type="button" data-action="skip-tour">${t("Skip")}</button>
         </div>
       </section>`;
     document.body.append(layer);

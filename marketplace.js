@@ -1,17 +1,23 @@
-const Marketplace = (() => {
+function createMarketplace(adapter) {
   const city = "Delhi";
   const areas = ["Lajpat Nagar", "Dwarka", "Rohini", "Saket"];
   const indiaOffset = 330 * 60_000;
-  const appointmentFormat = new Intl.DateTimeFormat("en-IN", {
+  const minute = 60_000;
+  const day = 24 * 60 * minute;
+  const appointmentOptions = {
     weekday: "short", day: "numeric", month: "short", year: "numeric",
     hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata",
-  });
-  const timing = { today: "Today", tomorrow: "Tomorrow", flexible: "Flexible" };
+  };
+  const appointmentFormats = {
+    "en-IN": new Intl.DateTimeFormat("en-IN", appointmentOptions),
+    "hi-IN": new Intl.DateTimeFormat("hi-IN", appointmentOptions),
+  };
+  const defaultHours = { days: [0, 1, 2, 3, 4, 5, 6], start: "09:00", end: "18:00", buffer: 30 };
   const units = { visit: "diagnostic visit", hourly: "hour", fixed: "package" };
   const services = [
     { id: "plumbing", name: "Plumbing", icon: "wrench", note: "Leaks, taps & fittings", terms: ["plumb", "tap", "leak", "pipe", "drain", "toilet"], tasks: ["Fix a leaking tap", "Unblock a drain", "Install a fitting", "Other plumbing work"] },
     { id: "electrical", name: "Electrical", icon: "bolt", note: "Fans, lights & wiring", terms: ["electr", "fan", "light", "switch", "wiring", "socket"], tasks: ["Repair a switch or socket", "Install a light or fan", "Check wiring", "Other electrical work"] },
-    { id: "cleaning", name: "Home cleaning", icon: "sparkles", note: "Rooms, kitchens & more", terms: ["clean", "bathroom", "kitchen", "dust"], tasks: ["Clean a kitchen", "Clean a bathroom", "Clean a room", "Other cleaning work"] },
+    { id: "cleaning", name: "Home cleaning", icon: "brush", note: "Rooms, kitchens & more", terms: ["clean", "bathroom", "kitchen", "dust"], tasks: ["Clean a kitchen", "Clean a bathroom", "Clean a room", "Other cleaning work"] },
     { id: "painting", name: "Painting", icon: "roller", note: "Walls, touch-ups & finishes", terms: ["paint", "wall", "touch-up", "roller"], tasks: ["Touch up a wall", "Paint one room", "Check a damp patch", "Other painting work"] },
   ];
 
@@ -25,7 +31,7 @@ const Marketplace = (() => {
     ["suresh-babu", "Suresh Babu", "painting", 12, 600, "visit", 4.9, 82, "today", "I do paint touch-ups and full room refreshes. An assessment helps me check the wall and estimate materials before you commit.", ["Kannada", "Tamil", "English"], 4],
     ["deepak-shetty", "Deepak Shetty", "painting", 6, 500, "visit", 4.7, 46, "tomorrow", "Interior walls, repainting and small patch repairs with care around furniture and fittings.", ["Kannada", "Hindi"], 8],
   ].map(([id, name, service, years, price, unit, rating, reviews, next, bio, languages, photo], index) => ({
-    id, name, service, years, price, unit, rating, reviews, next, bio, languages, photo,
+    id, name, service, years, price, unit, rating: 0, reviews: 0, next, bio, languages, photo,
     areas: index % 2 === 0 ? areas : areas.slice(0, 3), published: true,
     credential: "", sample: true,
   }));
@@ -46,7 +52,7 @@ const Marketplace = (() => {
 
   function read() {
     try {
-      const raw = localStorage.getItem(key);
+      const raw = (adapter || localStorage).getItem(key);
       if (raw) memory = { ...initialState(), ...JSON.parse(raw) };
     } catch { /* The demo still works in memory when storage is unavailable. */ }
     return memory;
@@ -54,12 +60,12 @@ const Marketplace = (() => {
 
   function save(state) {
     memory = state;
-    try { localStorage.setItem(key, JSON.stringify(state)); } catch { /* In-memory fallback. */ }
+    try { (adapter || localStorage).setItem(key, JSON.stringify(state)); } catch { /* In-memory fallback. */ }
     return state;
   }
 
   function reset() { return save(initialState()); }
-  function pros(state = read()) { return [...samplePros, ...(state.profile ? [state.profile] : [])]; }
+  function pros(state = read()) { return [...(state.connected ? state.profiles : samplePros), ...(state.profile ? [state.profile] : [])]; }
   function pro(id, state) { return pros(state).find((person) => person.id === id); }
   function service(id) { return services.find((item) => item.id === id); }
   function matches(query) {
@@ -78,24 +84,102 @@ const Marketplace = (() => {
     return Number.isFinite(timestamp) && localAppointment(timestamp) === value ? timestamp : NaN;
   }
 
-  function appointmentLabel(value) {
+  function appointmentLabel(value, timing, locale = "en-IN") {
+    if (timing === "now" && !value) return "As soon as available";
     const timestamp = appointmentTime(value);
-    return Number.isFinite(timestamp) ? appointmentFormat.format(timestamp) + " IST" : "Flexible timing";
+    return Number.isFinite(timestamp) ? appointmentFormats[locale].format(timestamp) + " IST" : "Flexible timing";
   }
 
-  function occupied(requests, proId, appointment, excludeId) {
-    return Boolean(appointment) && requests.some((job) => job.id !== excludeId
-      && job.proId === proId && job.appointment === appointment
-      && activeStatuses.includes(job.status) && job.status !== "pending");
+  function duration(job) {
+    return job.duration || (job.unit === "hourly" ? 120 : 60);
   }
 
-  function available(person, area, appointment = "", state = read()) {
-    if (!person?.published || !person.areas.includes(area) || person.next === "offline") return false;
-    if (!appointment) return true;
+  function immediateEnabled(person) {
+    return person.immediate ?? person.next === "today";
+  }
+
+  function acceptsAppointments(person) {
+    return person.hours ? person.hours.days.length > 0 : person.next !== "offline";
+  }
+
+  function reservationStart(job) {
+    return appointmentTime(job.appointment) || job.reservedAt
+      || (["en_route", "arrived", "in_progress"].includes(job.status) ? job.updatedAt : NaN);
+  }
+
+  function overlaps(start, end, otherStart, otherEnd) {
+    return start < otherEnd && otherStart < end;
+  }
+
+  function occupied(person, requests, start, end, excludeId, buffer, now) {
+    return requests.some((job) => {
+      if (job.id === excludeId || job.proId !== person.id || !journeyStatuses.includes(job.status)) return false;
+      if (job.status === "completed") return job.updatedAt + buffer > start && job.updatedAt <= end;
+      const reservedStart = reservationStart(job);
+      const otherStart = Math.min(job.journeyStartedAt ?? reservedStart, reservedStart);
+      let otherEnd = reservedStart + duration(job) * minute;
+      if (["en_route", "arrived", "in_progress"].includes(job.status)) otherEnd = Math.max(otherEnd, now + minute);
+      return overlaps(start, end, otherStart - buffer, otherEnd + buffer);
+    });
+  }
+
+  function withinHours(person, start, end, now) {
+    if (!acceptsAppointments(person)) return false;
+    const date = localAppointment(start).slice(0, 10);
+    if (!person.hours) {
+      return person.next !== "tomorrow" || date !== localAppointment(now).slice(0, 10);
+    }
+    const weekday = new Date(start + indiaOffset).getUTCDay();
+    const { days, start: opens, end: closes } = person.hours;
+    return days.includes(weekday) && start >= appointmentTime(date + "T" + opens)
+      && end <= appointmentTime(date + "T" + closes);
+  }
+
+  function slotError(person, job, state, now = Date.now(), checkAvailability = true) {
+    const immediate = job.timing === "now" && !job.appointment;
+    if (!person || (checkAvailability && !person.published)) return "This professional is unavailable.";
+    if (checkAvailability && immediate && !immediateEnabled(person)) return "This professional has paused immediate requests.";
+    const start = immediate ? job.reservedAt || now : appointmentTime(job.appointment);
+    if (!immediate && !job.appointment) {
+      return !checkAvailability || acceptsAppointments(person) ? "" : "This professional is not taking future appointments.";
+    }
+    if (checkAvailability && !immediate && !(start > now)) return "Choose an appointment in the future (IST).";
+    const end = start + duration(job) * minute;
+    if (checkAvailability && !immediate && !withinHours(person, start, end, now)) {
+      return "The estimated job length does not fit this professional’s working hours.";
+    }
+    if (person.blocks?.some((block) => overlaps(start, end, appointmentTime(block.start), appointmentTime(block.end)))) {
+      return "This time overlaps a block in the professional’s schedule.";
+    }
+    const buffer = (person.hours?.buffer ?? defaultHours.buffer) * minute;
+    if (occupied(person, state.requests, start, end, job.id, buffer, now)) {
+      return "This time overlaps a booked job or its travel buffer.";
+    }
+    return "";
+  }
+
+  function available(person, area, appointment = "", state = read(), timing = "") {
+    return Boolean(person?.published && person.areas.includes(area)
+      && !slotError(person, { appointment, timing, unit: person.unit }, state));
+  }
+
+  function blockSchedule(start, end) {
+    const state = current();
+    const person = state.profile;
+    const from = appointmentTime(start);
+    const to = appointmentTime(end);
     const now = Date.now();
-    if (!(appointmentTime(appointment) > now)) return false;
-    if (person.next === "tomorrow" && appointment.slice(0, 10) === localAppointment(now).slice(0, 10)) return false;
-    return !occupied(state.requests, person.id, appointment);
+    if (!person || !(from >= Math.floor(now / minute) * minute && to > from)) {
+      return { error: "Choose a future start and an end time after it." };
+    }
+    if (occupied(person, state.requests, from, to, null, 0, now)) {
+      return { error: "This block overlaps a confirmed job. Choose another time." };
+    }
+    if (person.blocks?.some((block) => overlaps(from, to, appointmentTime(block.start), appointmentTime(block.end)))) {
+      return { error: "This time overlaps an existing block." };
+    }
+    save({ ...state, profile: { ...person, blocks: [...(person.blocks || []), { id: id(), start, end }] } });
+    return {};
   }
 
   function expire(state, now = Date.now()) {
@@ -112,7 +196,7 @@ const Marketplace = (() => {
 
   function current() {
     const state = read();
-    if (expire(state)) save(state);
+    if (adapter?.authoritative !== false && expire(state)) save(state);
     return state;
   }
 
@@ -120,24 +204,32 @@ const Marketplace = (() => {
     return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
-  function request({ intent, proId, scope, area, appointment = "", contact }) {
+  function request({ intent, proId, scope, area, appointment = "", timing = "", contact }) {
     const state = current();
-    const existing = state.requests.find((job) => job.intent === intent && activeStatuses.includes(job.status));
+    const existing = state.requests.find((job) => job.intent === intent
+      && (!state.connected || job.customerId === state.account.id)
+      && (activeStatuses.includes(job.status) || (state.connected && job.proId === proId)));
     if (existing) return { job: existing };
     const person = pro(proId, state);
     const trade = service(person?.service);
     const now = Date.now();
-    if (appointment && !(appointmentTime(appointment) > now)) {
-      return { error: "Choose an appointment in the future." };
-    }
-    if (!trade?.tasks.includes(scope) || !available(person, area, appointment, state)) {
-      return { error: "This professional is unavailable for that area or timing. Try another option." };
+    if (!trade?.tasks.includes(scope) || !person.areas.includes(area)) {
+      return { error: "This professional is unavailable for that service or neighbourhood." };
     }
     const job = {
-      id: id(), intent, proId, scope, area, appointment, contact, service: trade.id,
+      id: id(), intent, proId, scope, area, appointment, timing: !appointment && timing === "now" ? "now" : "", contact, service: trade.id,
       proName: person.name, price: person.price, unit: person.unit, status: "pending",
       createdAt: now, updatedAt: now, deadline: now + responseWindow, messages: [],
     };
+    if (state.connected) {
+      job.customerId = state.account.id;
+      if (job.timing !== "now") {
+        job.deadline = Math.min(now + day, appointmentTime(appointment) || Infinity);
+      }
+    }
+    job.duration = duration(job);
+    const error = slotError(person, job, state, now);
+    if (error) return { error };
     state.requests.unshift(job);
     save(state);
     return { job };
@@ -154,17 +246,54 @@ const Marketplace = (() => {
     } : Object.fromEntries(cancellableStatuses.map((status) => [status, { cancel: "cancelled" }]));
     const next = actions[job.status]?.[action];
     if (!next) return { error: "The request has changed. Check its latest status." };
-    if (next === "accepted" && job.appointment && !(appointmentTime(job.appointment) > Date.now())) {
-      return { error: "This appointment time has passed. Ask the customer to choose a new time." };
+    const now = Date.now();
+    if (next === "accepted") {
+      const error = slotError(pro(job.proId, state), job, state, now);
+      if (error) return { error };
+      if (job.timing === "now") job.reservedAt = now;
     }
-    if (next === "accepted" && occupied(state.requests, job.proId, job.appointment, job.id)) {
-      return { error: "There is already an accepted job at that time. Decline this request or ask the customer for a different time." };
+    if (["en_route", "arrived"].includes(next) && job.status === "accepted" && !job.appointment && !job.reservedAt) {
+      const error = slotError(pro(job.proId, state), { ...job, timing: "now" }, state, now, false);
+      if (error) return { error };
+      job.reservedAt = now;
     }
+    if (["en_route", "arrived"].includes(next) && job.status === "accepted") job.journeyStartedAt = now;
     job.status = next;
-    job.updatedAt = Date.now();
+    job.updatedAt = now;
     if (next !== "en_route") delete job.tracking;
     save(state);
     return { job };
+  }
+
+  function updateDuration(jobId, proId, minutes) {
+    const state = current();
+    const job = state.requests.find((item) => item.id === jobId && item.proId === proId);
+    if (!job || !["pending", "accepted"].includes(job.status)) return { error: "The estimate can only be edited before starting a job." };
+    if (!Number.isInteger(minutes) || minutes < 15 || minutes > 720) return { error: "Enter a duration from 15 to 720 minutes." };
+    if (job.status === "accepted") {
+      const person = pro(proId, state);
+      const now = Date.now();
+      const start = appointmentTime(job.appointment);
+      if (start > now && minutes > duration(job) && !withinHours(person, start, start + minutes * minute, now)) {
+        return { error: "The longer estimate does not fit your current working hours." };
+      }
+      const error = slotError(person, { ...job, duration: minutes }, state, now, false);
+      if (error) return { error };
+    }
+    job.duration = minutes;
+    save(state);
+    return { job };
+  }
+
+  function agenda(person, requests, date) {
+    const start = appointmentTime(date + "T00:00");
+    const end = start + day;
+    const jobs = requests.filter((job) => job.proId === person.id && journeyStatuses.includes(job.status))
+      .map((job) => ({ job, start: reservationStart(job), end: reservationStart(job) + duration(job) * minute }));
+    const blocks = (person.blocks || []).map((block) => ({
+      block, start: appointmentTime(block.start), end: appointmentTime(block.end),
+    }));
+    return [...jobs, ...blocks].filter((item) => overlaps(start, end, item.start, item.end)).sort((a, b) => a.start - b.start);
   }
 
   function contact(jobId, role, proId, message) {
@@ -229,8 +358,12 @@ const Marketplace = (() => {
     return { mode, progress, lastUpdate, eta: Math.ceil((1 - progress) * 8) };
   }
 
-  return { city, areas, timing, units, services, statuses, read, save, reset, current, expire,
+  return { city, areas, units, services, statuses, read, save, reset, current, expire,
     pros, pro, service, matches, available, id, request, transition, contact, unread, readChat, track,
     position, localAppointment, appointmentTime, appointmentLabel, journeyStatuses, activeStatuses,
+    immediateEnabled, acceptsAppointments, duration, defaultHours, blockSchedule, updateDuration, agenda,
     cancellableStatuses, storageKey: key };
-})();
+}
+
+const Marketplace = typeof module === "undefined" ? createMarketplace(Live.enabled ? Live.adapter : undefined) : null;
+if (typeof module !== "undefined") module.exports = createMarketplace;

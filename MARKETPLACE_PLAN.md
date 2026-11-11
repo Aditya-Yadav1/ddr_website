@@ -2,9 +2,17 @@
 
 Updated 11 November 2026. Use this file as the starting point in a new session. Phase 1, Phase 1B, and the Delhi appointment update are implemented locally. The next task should follow the user's latest request. The earlier preference was Astra for planning and Sol for implementation to reduce token usage.
 
-**Latest planning update:** Read [Customer and worker experiences: proposed next phase](#customer-and-worker-experiences-proposed-next-phase) before implementing further changes. The user requested research and planning only for distinct customer/worker experiences. A separate contractor or agency product is out of scope. The recommendation is two focused experiences on one shared platform; this new phase is not implemented or approved for implementation yet. Earlier references to contractor screens describe the existing demo, not a new business-role requirement.
+**Latest implementation:** The connected preview adds local accounts, published worker profiles, shared bookings and chat. The existing browser demo still supports the bilingual worker setup and practice walkthrough. Read [Customer and worker experiences](#customer-and-worker-experiences) for the remaining plan.
 
 ## Direction and current state
+
+### Token-saving workflow preference (11 November 2026)
+
+The user explicitly prioritizes saving tokens and wants model/effort recommendations before substantial work. Recommended default: Sol Medium for scoped implementation, UI changes, routine planning and handoff updates; Sol High for changes spanning booking state, routes and persistence, scheduling logic, and difficult debugging. Use Astra Medium for unresolved product/architecture tradeoffs; reserve Astra High for difficult architecture, concurrency/security review or problems still unresolved after focused diagnosis. These are project recommendations, not measured token savings or automatic model switches.
+
+Use Sol Medium for scoped onboarding and accessibility edits. Use Sol High when coordinating bilingual copy and separate walkthroughs across routes, storage and keyboard interactions. Keep each task bounded with acceptance checks. Production still needs a decision about immediate versus scheduled request deadlines.
+
+Current checkout inspected for this analysis: `C:/Users/soura/OneDrive - IIT Delhi/Desktop/ddr_website` (repository root). The older workspace path below is historical.
 
 Keep HandyHive. The current demonstration covers Delhi only, with Lajpat Nagar, Dwarka, Rohini and Saket. The services are plumbing, electrical work, cleaning and painting. The journey is choose work → compare suitable professionals → review scope, price and timing → request one professional → receive their decision → track the booking.
 
@@ -16,10 +24,11 @@ The user then approved a dimmed spotlight walkthrough, researched colour choices
 
 - Original workspace: `C:/Users/adity/OneDrive/Desktop/ddr_website`. Its Git checkout and website are in the child folder `ddr_website`. The committed handoff is `MARKETPLACE_PLAN.md` at the repository root alongside `index.html`; an outer-workspace copy was retained for the current session. In a fresh clone, use the repository-root document as the source of truth.
 - Open `index.html` from the repository root in a browser. The app runs directly from local files and can also be served by a static HTTP server. It uses plain HTML, CSS and JavaScript without a build step. Run `git status --short` from the repository root to inspect existing working-tree edits.
+- For separate customer and worker accounts, run `node server.js` using Node 22.13.1 or a compatible version with `node:sqlite`, then visit `http://127.0.0.1:4174`. Create two test accounts in different browser profiles and publish a worker profile from Find work. The preview binds to loopback. The database defaults to `%LOCALAPPDATA%/HandyHive/preview.sqlite` on Windows. Set `HANDYHIVE_DB` and `HANDYHIVE_PORT` to run an isolated preview. The browser demo and server preview have separate data.
 - `marketplace.js` owns the city, neighbourhoods, services, sample profiles, booking validation, persistence, journey states and simulated positions. `script.js` renders the screens and handles forms. `appearance.js`, `walkthrough.js`, `contact.js` and `tracking.js` handle their named UI features. `styles.css` contains the light and dark tokens. `assets/` contains the ImageGen hero photo, four service images and eight fictional contractor portraits.
-- To demonstrate both sides, choose Plumbing → View profile → Request this pro → Review request → Send demo request. Open contractor inbox → Accept job → On my way → Start demo tracking. Use View as customer to see the sample map and contact controls.
+- To demonstrate both sides, choose Plumbing → View profile → Request this pro → Review request → Send demo request. Choose View as worker (demo) → Accept job → On my way → Start demo tracking. Use View as customer (demo) to see the sample map and contact controls. Find work opens `#/workspace/today`. Use the Demo profile switcher to pick a sample worker.
 - Current data is local to the browser and origin. Delhi uses `handyhive-marketplace-delhi-v1`. The earlier Bengaluru demo key is left intact and its data does not appear in Delhi. An old Bengaluru results link falls back to the Delhi default neighbourhood. Appearance has its own preference key. The local reset affects the current demo.
-- Phase 2 is the next planned architecture milestone, subject to the user's direction. Use Astra for its planning if the user wants to follow the earlier model split, then Sol for implementation. Do not treat any live service as provisioned.
+- The local demo now covers worker scheduling and onboarding. The next milestone is the separately scoped live foundation.
 
 ## Six screens
 
@@ -102,7 +111,7 @@ Cards state units: “₹650 diagnostic visit,” “₹450/hour · 2-hour minim
 
 Request states are `draft → pending → accepted / declined / expired / cancelled`. Accepted jobs continue through the journey states defined above. Maintain one active professional request per customer booking intent. After decline, expiry or cancellation, choosing another pro creates a new attempt while retaining the task details and any appointment that is still in the future.
 
-The Delhi demo uses native calendar and clock inputs on the results filter and request form. **In 30 min** and **In 1 hour** fill both controls. **Flexible** clears them. Enter both fields or leave both blank. Search, profile, review, booking and inbox carry the chosen date and time. The demo interprets all times in IST, independent of the device timezone, and validates that scheduled times are in the future. A contractor cannot accept two active bookings with the same exact appointment time. Production still needs duration-aware availability and server-side reservations.
+The Delhi demo uses native IST calendar and clock inputs on the results filter and request form. **In 30 min** and **In 1 hour** fill both controls. **Flexible** clears them. **Request now** matches workers accepting immediate requests who have room for the estimated duration. Flexible jobs leave timing to the participants and reserve a time block when the worker begins the journey. Dated requests must fit working hours, blocked time, and the travel gap around confirmed jobs. Acceptance checks the slot again. Production still needs authoritative server reservations.
 
 Default response window: **three minutes, configurable**. Store an absolute deadline so refresh/backgrounding cannot reset it. Contact is a separate event: it neither accepts the job nor pauses expiration. Availability indicators are estimates, not guarantees.
 
@@ -155,9 +164,9 @@ All six screens and the local pro inbox are implemented. Requests transition wit
 - [Uber delivery-side contact](https://help.uber.com/en/driving-and-delivering/article/delivery-arrival-steps?nodeId=44ff6981-ef4e-4620-bc26-9efb3d18c959): the contractor side needs access to the same booking conversation. Number masking was considered for production. No call provider has been chosen.
 - [Leaflet quick start](https://leafletjs.com/examples/quick-start/), [OSM tile policy](https://operations.osmfoundation.org/policies/tiles/) and [MDN Geolocation](https://developer.mozilla.org/en-US/docs/Web/API/Geolocation_API): map rendering, tile requirements and permission-based location access.
 
-## Customer and worker experiences: proposed next phase
+## Customer and worker experiences
 
-Research reviewed 11 November 2026. Status: **proposal only**. Preserve all implemented Delhi, appointment, theme, walkthrough, contact and tracking behavior until a subsequent implementation request. The user asked whether two websites are necessary and explicitly deferred contractor-specific design. Here, worker means an individual service provider. No team dispatch, agency dashboard or contractor management is proposed.
+Research reviewed 11 November 2026. **Steps 1–4 are implemented locally.** Customers use Explore, Bookings and Account. Find work opens HandyHive Work with Today, Jobs, Schedule and Profile. Today shows jobs in progress or due, pending requests, the next confirmed appointment and accepted jobs with flexible timing. Schedule shows an IST day agenda, recurring days with a shared daily opening/closing window, dated blocks, and a configurable travel gap. Turning immediate requests off preserves future hours and confirmed jobs. Workers can adjust provisional estimates before starting a job. Defaults are 60 minutes per job or 120 minutes for hourly work, with a 30-minute travel gap. Old profiles retain their prior availability until hours are saved, old bookings get duration defaults, and the `#/workspace/availability` route opens Schedule. The worker language setting covers navigation, setup, scheduling, job details and contact controls. Customer screens and demo policies use English.
 
 ### Recommendation and alternatives
 
@@ -219,7 +228,7 @@ Offer Hindi and English explicitly, with reviewed translations for navigation, j
 - One booking record and one conversation serve both sides. Notification links open the relevant role and booking; switching roles must not duplicate messages or lose drafts. Prevent self-booking in the live product.
 - Preserve the same warm ivory/charcoal/orange design tokens, System/Light/Dark controls and component language. Distinguish experiences through wording, layout and priorities rather than creating two arbitrary palettes. The worker screen should remain readable outdoors; dark mode stays optional.
 - Keep separate optional walkthrough completion flags for customers and workers. Worker tour: availability control, sample request details, schedule. Use sample content for instruction and never auto-accept a real job as a tutorial step.
-- Keep Delhi-only areas and IST throughout. Before a live launch, validate duration overlap, travel feasibility and late requests on the server. The existing exact-start-time conflict check is only a prototype safeguard.
+- Keep Delhi-only areas and IST throughout. The demo checks duration and a configurable travel gap in the browser. Before a live launch, validate duration overlap, travel feasibility and late requests on the server.
 - Retain the three-minute timer as a labelled demonstration rule. For production, immediate requests should target workers actually ready to respond. Scheduled requests need a deliberate response policy; do not silently impose the same timer on an offline worker. Decide that policy before building real delivery and expiry behavior.
 - Weak connectivity must show pending/sent/failed accurately. Never report a locally queued acceptance as confirmed. On reconnect, reconcile against authoritative state and reject expired/conflicting acceptance clearly.
 
@@ -229,9 +238,9 @@ Offer Hindi and English explicitly, with reviewed translations for navigation, j
 2. **Worker Today and job experience:** incoming/active/next-job priorities, readable request details, accept/decline, contact and progress actions using the existing booking state machine. Give customer and worker independently useful home screens.
 3. **Worker scheduling:** immediate-request setting separate from future schedule; duration/buffer model; explicit save feedback; retain customer IST calendar and shortcuts. Test matching and overlap behavior together.
 4. **Onboarding and accessibility:** simplify worker steps, add language infrastructure and reviewed Hindi/English text, separate spotlight tour, responsive and keyboard checks in both themes.
-5. **Live foundation, separately scoped:** OTP, durable shared data, server authorization, reliable notification handling, production booking deadlines, real chat/calls/location and optional payment. No provider selected by this plan. No framework rewrite or native-app build is necessary for steps 1–4.
+5. **Live foundation:** The connected preview has SQLite persistence, local test accounts with hashed passwords, booking participant authorization, server-side scheduling checks, shared chat and polling for booking updates. Immediate requests expire after three minutes. Dated and flexible requests have up to 24 hours, capped at the appointment start for dated requests. Phone OTP, outbound notifications, genuine calls/GPS and production hosting remain future slices.
 
-A useful next implementation slice is steps 1–2, followed by schedule work. Defer contractor/agency features, bidding, automatic assignment, subscriptions, paid leads, wallets, incentives and expansion outside Delhi.
+The next milestone is step 5. Defer contractor/agency features, bidding, automatic assignment, subscriptions, paid leads, wallets, incentives and expansion outside Delhi.
 
 ### Validation and handoff
 
@@ -241,4 +250,33 @@ For later usability research, recruit a small exploratory group of Delhi workers
 
 **Planning review:** The existing Astra planner reviewed this direction and agreed with one shared platform and separate experiences. Its main concern was the mismatch between future calendar availability and a three-minute response promise; the proposal above records that open policy decision. It also emphasized worker-onboarding gates and complete translations for any bilingual flow.
 
-**Next-session instruction:** Read this section plus the current-state notes, inspect the working tree, and implement only the subsequently authorized slice. Switch to Sol for implementation to follow the user's token-saving preference. This update changes documentation only and does not provision services, publish a site or create a contractor product.
+**Next session:** Prepare an SMS pilot with a configured provider account, then review hosting, retention and support before offering the service beyond this computer. The current preview uses browser polling.
+
+## Visual preferences recorded 11 November 2026
+
+Use square corners, warm neutral surfaces, restrained colour, the existing Manrope/DM Sans typography and functional demonstrations. Avoid gradients, Lucide, pure-white surfaces, rainbow/neon/pastel palettes, shadows, glass effects, decorative card grids, fabricated testimonials or ratings, sparkle icons, emoji, checkmark lists, decorative animation and em dashes. Keep Terms and Privacy accessible. Images use neutral placeholders during loading. The existing call and location features remain explicitly simulated. Demo Terms and Privacy describe the current browser storage and Google Fonts requests. Live-service policies need the actual operator and providers.
+
+## Phone sign-in slice
+
+Implemented a local phone-code emulator alongside existing password accounts. Indian +91 test numbers receive an on-screen code, with a five-minute expiry, five-attempt limit, 60-second resend cooldown, per-phone and per-address request limits, and one-use consumption. Codes are hashed in SQLite; phone accounts and sessions persist. This does not verify phone ownership or deliver SMS. Phone-created accounts are separate from existing password accounts; linking is not implemented.
+
+Updated preview for this slice: http://127.0.0.1:4175/ (same local database). Start with HANDYHIVE_PORT=4175 and node server.js. The earlier password server on 4174 must be restarted to serve these backend changes.
+
+Validation: API checks covered sign-in, used-code rejection, resend cooldown and five-attempt lockout. Chrome checked the phone flow at 360px, no horizontal overflow, and session persistence after reload. JavaScript syntax and diff whitespace checks passed.
+
+## Booking updates and SMS
+
+The local preview at http://127.0.0.1:4176/#/account shows each account its latest 12 booking updates. Each update links to the corresponding booking or worker job. New requests and cancellations notify the worker. Acceptance, decline, expiry and completion notify the customer. Updates are written with the booking change, so replaying a request or restarting the server preserves a single copy.
+
+The default `preview` mode uses the local code emulator and the existing `preview.sqlite` database. An optional Twilio mode uses a separate `verified.sqlite` database and server-checked SMS codes. Databases are bound to their authentication mode so test accounts and cookies cannot become verified accounts.
+
+For a controlled SMS pilot, set these environment variables and run `node server.js`. The server still binds to loopback.
+
+- `HANDYHIVE_PHONE_MODE=twilio`
+- `TWILIO_API_KEY` and `TWILIO_API_SECRET` with permission to use Verify and, if configured, create messages.
+- `TWILIO_VERIFY_SERVICE_SID` for a Verify service configured for six-digit codes and the India SMS route.
+- To enable booking SMS, also set `TWILIO_ACCOUNT_SID` and `TWILIO_MESSAGING_SERVICE_SID`. Confirm the sender and the message bodies in `booking-updates.js` are approved for the chosen India route before enabling it. See [Twilio Verify](https://www.twilio.com/docs/verify/api), [Messages API](https://www.twilio.com/docs/messaging/api/message-resource) and [Twilio's India SMS guidance](https://www.twilio.com/en-us/guidelines/in/sms).
+
+Booking SMS starts off for every account. After a user opts in, future updates are queued. The queue skips stale updates and cancels queued sends on opt-out. It retries explicit rate limits twice with backoff. Timeouts and uncertain submissions are held for review to avoid sending duplicates. A submitted message records the provider ID for lookup in Twilio. Carrier delivery receipts and inbound STOP handling still need pilot setup and validation.
+
+Next, provision the provider account and run a controlled test with a consenting recipient. This slice used simulated provider responses and the local preview.

@@ -11,15 +11,15 @@ const Contact = (() => {
   function actions(job, role, person) {
     const available = Marketplace.activeStatuses.includes(job.status);
     if (!available && !job.messages.length) return "";
-    const name = role === "pro" ? "Customer" : job.proName;
+    const name = role === "pro" ? t("Customer") : job.proName;
     const attributes = `data-job="${esc(job.id)}" data-role="${role}"`;
-    return `<section class="panel booking-contact" aria-label="Booking contact">
+    return `<section class="panel booking-contact" aria-label="${t("Booking contact")}">
       <div class="contact-person">${role === "customer" && person ? portrait(person) : `<span class="feature-icon">${icon("user")}</span>`}
-        <div><h2>${esc(name)}</h2><p>${role === "pro" ? esc(job.area) : esc(Marketplace.service(job.service).name)}</p></div>
+        <div><h2>${esc(name)}</h2><p>${role === "pro" ? esc(t(job.area)) : esc(Marketplace.service(job.service).name)}</p></div>
       </div>
       <div class="contact-actions">
-        ${available ? `<button class="btn secondary" type="button" data-action="booking-call" ${attributes}>${icon("phone", 18)} Call</button>` : ""}
-        <button class="btn secondary" type="button" data-action="booking-chat" ${attributes}>${icon("message", 18)} ${available ? "Chat" : "Chat history"}
+        ${available ? `<button class="btn secondary" type="button" data-action="booking-call" ${attributes}>${icon("phone", 18)} ${t("Call")}</button>` : ""}
+        <button class="btn secondary" type="button" data-action="booking-chat" ${attributes}>${icon("message", 18)} ${t(available ? "Chat" : "Chat history")}
           <span class="unread" data-unread ${attributes} hidden></span></button>
       </div>
     </section>`;
@@ -27,26 +27,26 @@ const Contact = (() => {
 
   function open(job, role, kind) {
     if (!job || (kind === "call" && !Marketplace.activeStatuses.includes(job.status))) return;
-    const name = role === "pro" ? "Customer" : job.proName;
+    const name = role === "pro" ? t("Customer") : job.proName;
     view = { id: job.id, role, proId: job.proId, kind, key: `${job.id}:${role}` };
     if (kind === "call") {
       callState = "ready";
-      openDialog(`Call ${esc(name)}`, `<p class="muted">Demo call · No phone number is dialled.</p>
+      openDialog(t("Call {name}", { name: esc(name) }), `<p class="muted">${t("Demo call · No phone number is dialled.")}</p>
         <div class="call-status" aria-live="polite"></div><div class="action-row call-controls"></div>`, "call");
       renderCall();
       return;
     }
-    openDialog(`Chat with ${esc(name)}`, `<p class="muted chat-note">Demo chat · Saved in this browser.</p>
-      <div class="chat-thread" role="log" aria-label="Messages" tabindex="0"></div>
+    openDialog(t("Chat with {name}", { name: esc(name) }), `<p class="muted chat-note">${t(Live.enabled ? "Messages are shared with the other person on this booking." : "Demo chat · Saved in this browser.")}</p>
+      <div class="chat-thread" role="log" aria-label="${t("Messages")}" tabindex="0"></div>
       <div class="chat-compose">
-        <div class="quick-messages" aria-label="Quick messages">${suggestions.map((message, index) =>
-          `<button class="btn secondary" type="button" data-action="quick-message" data-index="${index}">${message}</button>`).join("")}</div>
+        <div class="quick-messages" aria-label="${t("Quick messages")}">${suggestions.map((message, index) =>
+          `<button class="btn secondary" type="button" data-action="quick-message" data-index="${index}">${t(message)}</button>`).join("")}</div>
         <form id="message-form" class="message-form">
-          <label class="sr-only" for="chat-message">Message</label>
-          <input id="chat-message" name="message" maxlength="280" placeholder="Write a message" value="${esc(drafts.get(view.key) || "")}" required>
-          <button class="btn dark" type="submit">Send ${icon("message", 16)}</button>
+          <label class="sr-only" for="chat-message">${t("Message")}</label>
+          <input id="chat-message" name="message" maxlength="280" placeholder="${t("Write a message")}" value="${esc(drafts.get(view.key) || "")}" required>
+          <button class="btn dark" type="submit">${t("Send")} ${icon("message", 16)}</button>
         </form>
-      </div><p class="muted chat-closed" hidden>This booking’s conversation is read-only.</p>
+      </div><p class="muted chat-closed" hidden>${t("This booking’s conversation is read-only.")}</p>
       <p class="error contact-error" role="alert" hidden></p>`, "chat");
     sync(Marketplace.read(), true);
     const previousScroll = scrollPositions.get(view.key);
@@ -68,9 +68,9 @@ const Contact = (() => {
       unavailable: [["Try again", "connecting", "primary"]],
       ended: [["Done", "close", "primary"]],
     };
-    dialog.querySelector(".call-status").textContent = statuses[callState];
+    dialog.querySelector(".call-status").textContent = t(statuses[callState]);
     dialog.querySelector(".call-controls").innerHTML = controls[callState].map(([label, next, style]) =>
-      button(label, next === "close" ? "close" : `call-${next}`, style)).join("");
+      button(t(label), next === "close" ? "close" : `call-${next}`, style)).join("");
   }
 
   function advanceCall(next) {
@@ -86,14 +86,16 @@ const Contact = (() => {
     if (thread.dataset.count === String(job.messages.length)) return;
     const nearEnd = scrollToEnd || thread.scrollHeight - thread.scrollTop - thread.clientHeight < 35;
     thread.dataset.count = job.messages.length;
-    const label = view.role === "pro" ? "Customer" : job.proName;
+    const label = view.role === "pro" ? t("Customer") : job.proName;
     thread.innerHTML = job.messages.length ? `<ul class="messages">${job.messages.map((item) =>
       `<li class="${item.role === view.role ? "mine" : ""}"><div class="message-meta">
-        <b>${item.role === view.role ? "You" : esc(label)}</b>
+        <b>${item.role === view.role ? t("You") : esc(label)}</b>
         <time datetime="${new Date(item.time).toISOString()}">${messageTime.format(item.time)}</time></div>
-        <p>${esc(item.message)}</p></li>`).join("")}</ul>` : '<p class="chat-empty muted">No messages yet.</p>';
+        <p>${esc(item.message)}</p></li>`).join("")}</ul>` : `<p class="chat-empty muted">${t("No messages yet.")}</p>`;
     if (nearEnd) thread.scrollTop = thread.scrollHeight;
-    Marketplace.readChat(job.id, view.role);
+    if (Live.enabled) {
+      if (Marketplace.unread(job, view.role)) Live.command("read-chat", { job: job.id, role: view.role });
+    } else Marketplace.readChat(job.id, view.role);
   }
 
   function sync(state, scrollToEnd = false) {
@@ -116,7 +118,7 @@ const Contact = (() => {
       const count = job ? Marketplace.unread(job, badge.dataset.role) : 0;
       badge.hidden = count === 0;
       badge.textContent = count > 9 ? "9+" : count;
-      badge.setAttribute("aria-label", `${count} unread${count === 1 ? " message" : " messages"}`);
+      badge.setAttribute("aria-label", t(count === 1 ? "{count} unread message" : "{count} unread messages", { count }));
     }
   }
 
@@ -128,23 +130,33 @@ const Contact = (() => {
     const input = dialog.querySelector("#chat-message");
     if (!input || !suggestions[index]) return;
     const current = input.value.trim();
-    const draft = current ? current + " " + suggestions[index] : suggestions[index];
+    const message = t(suggestions[index]);
+    const draft = current ? current + " " + message : message;
     input.value = draft.slice(0, input.maxLength);
     saveDraft(input);
     input.focus();
   }
 
-  function send(form) {
+  async function send(form) {
     if (view?.kind !== "chat") return;
     const input = form.elements.message;
     const message = input.value.trim();
     const error = dialog.querySelector(".contact-error");
-    const result = message ? Marketplace.contact(view.id, view.role, view.proId, message) : { error: "Enter a message." };
+    const { id, role, proId, key } = view;
+    const submit = form.querySelector('button[type="submit"]');
+    if (submit.disabled) return;
+    submit.disabled = true;
+    const result = message ? await mutatePreview("message", { job: id, role, message },
+      () => Marketplace.contact(id, role, proId, message)) : { error: "Enter a message." };
+    submit.disabled = false;
+    if (view?.key !== key || !form.isConnected) return;
     error.hidden = !result.error;
-    error.textContent = result.error || "";
+    error.textContent = t(result.error || "");
     if (result.error) return;
-    input.value = "";
-    drafts.delete(view.key);
+    if (input.value.trim() === message) {
+      input.value = "";
+      drafts.delete(key);
+    }
     sync(Marketplace.read(), true);
     input.focus();
   }
