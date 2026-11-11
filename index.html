@@ -1,119 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-IN">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Local, trusted pros for every job. Handled by HandyHive." />
-    <title>HandyHive — Local help, handled</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f6f2">
+    <script src="appearance.js"></script>
+    <meta name="description" content="Find and compare local professionals for home repairs and everyday work in Delhi.">
+    <title>HandyHive · Local home services</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f26b3a'/%3E%3Cpath d='m16 5 9 5.5v11L16 27l-9-5.5v-11L16 5Zm-4 7v8m8-8v8m-8-4h8' fill='none' stroke='%2317201d' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="marketplace.js" defer></script>
+    <script src="walkthrough.js" defer></script>
+    <script src="tracking.js" defer></script>
+    <script src="contact.js" defer></script>
+    <script src="script.js" defer></script>
   </head>
   <body>
-    <header class="site-header">
-      <a class="brand" href="#" aria-label="HandyHive home">
-        <span class="brand-mark">H</span>
-        <span>handy<span class="brand-accent">hive</span></span>
-      </a>
-      <nav class="main-nav" id="main-nav">
-        <a href="#how-it-works">How it works</a>
-        <a href="#services">Services</a>
-        <a href="#pros">For pros</a>
-        <a href="#safety">Safety</a>
-      </nav>
-      <div class="header-actions">
-        <button class="text-button" data-open-modal="pro-modal">Join as a pro</button>
-        <button class="button button-dark button-small" data-open-modal="request-modal">Post a job</button>
-      </div>
-      <button class="menu-toggle" aria-label="Open menu" aria-expanded="false">☰</button>
-    </header>
-
-    <main>
-      <section class="hero">
-        <div class="hero-copy">
-          <div class="eyebrow"><span class="pulse"></span> Trusted help, right around the corner</div>
-          <h1>Local help.<br /><em>Handled.</em></h1>
-          <p class="hero-text">From a leaky tap to a full home renovation, connect with vetted local pros who get the job done right.</p>
-          <form class="search-bar" id="search-form">
-            <label class="search-field">
-              <span class="search-icon">⌕</span>
-              <input id="search-input" type="search" placeholder="What do you need help with?" aria-label="What do you need help with?" />
-            </label>
-            <label class="location-field">
-              <span>⌖</span>
-              <input type="text" value="Bengaluru" aria-label="Your location" />
-            </label>
-            <button class="button button-orange" type="submit">Find a pro <span>→</span></button>
-          </form>
-          <div class="popular">
-            <span>Popular:</span>
-            <button class="tag" data-search="Plumbing">Plumbing</button>
-            <button class="tag" data-search="Electrician">Electrician</button>
-            <button class="tag" data-search="Cleaning">Cleaning</button>
-            <button class="tag" data-search="Painting">Painting</button>
-          </div>
-        </div>
-        <div class="hero-art" aria-label="Illustration of a HandyHive professional">
-          <div class="sun"></div>
-          <div class="blob blob-one"></div>
-          <div class="blob blob-two"></div>
-          <div class="hero-card rating-card"><strong>4.9</strong><span>★</span><small>average pro rating</small></div>
-          <div class="hero-card jobs-card"><span class="mini-icon">✓</span><div><strong>12k+</strong><small>jobs completed</small></div></div>
-          <div class="person"><div class="person-head"></div><div class="person-body"></div><div class="toolbox">▰</div></div>
-        </div>
-      </section>
-
-      <section class="trust-strip">
-        <p>Why people choose HandyHive</p>
-        <div><span class="trust-icon">✓</span><strong>Vetted pros</strong><small>Background checked</small></div>
-        <div><span class="trust-icon">◆</span><strong>Transparent pricing</strong><small>No surprise costs</small></div>
-        <div><span class="trust-icon">◷</span><strong>Quick response</strong><small>Get matched in minutes</small></div>
-        <div><span class="trust-icon">♡</span><strong>Work guaranteed</strong><small>We have your back</small></div>
-      </section>
-
-      <section class="section services-section" id="services">
-        <div class="section-heading">
-          <div><p class="eyebrow">Whatever the job</p><h2>There’s a pro for that.</h2></div>
-          <a class="arrow-link" href="#services">Explore all services <span>↗</span></a>
-        </div>
-        <div class="service-grid" id="service-grid">
-          <button class="service-card plumbing" data-search="Plumbing"><span class="service-emoji">🔧</span><strong>Plumbing</strong><small>312 pros nearby</small><span class="card-arrow">↗</span></button>
-          <button class="service-card electric" data-search="Electrician"><span class="service-emoji">⚡</span><strong>Electrician</strong><small>184 pros nearby</small><span class="card-arrow">↗</span></button>
-          <button class="service-card cleaning" data-search="Cleaning"><span class="service-emoji">✦</span><strong>Home cleaning</strong><small>526 pros nearby</small><span class="card-arrow">↗</span></button>
-          <button class="service-card painting" data-search="Painting"><span class="service-emoji">◒</span><strong>Painting</strong><small>97 pros nearby</small><span class="card-arrow">↗</span></button>
-        </div>
-      </section>
-
-      <section class="section steps-section" id="how-it-works">
-        <div class="section-heading"><div><p class="eyebrow">Simple by design</p><h2>From “uh-oh” to “all done.”</h2></div></div>
-        <div class="steps">
-          <article class="step"><span class="step-number">01</span><div class="step-icon">✎</div><h3>Tell us what you need</h3><p>Share a few details about your job, your timing, and your location.</p></article>
-          <article class="step"><span class="step-number">02</span><div class="step-icon">♧</div><h3>Meet your match</h3><p>We’ll introduce you to trusted pros who are available and nearby.</p></article>
-          <article class="step"><span class="step-number">03</span><div class="step-icon">✓</div><h3>Get it handled</h3><p>Book with confidence, pay securely, and get back to your day.</p></article>
-        </div>
-      </section>
-
-      <section class="pro-banner" id="pros">
-        <div><p class="eyebrow">For the people who make things happen</p><h2>More jobs. Less chasing.</h2><p>Grow your business with a steady stream of local customers. You bring the craft, we’ll bring the connection.</p><button class="button button-light" data-open-modal="pro-modal">Start earning with HandyHive <span>→</span></button></div>
-        <div class="pro-stat"><strong>₹18.4Cr</strong><span>earned by our pro community</span></div>
-      </section>
-
-      <section class="section safety-section" id="safety">
-        <div class="safety-copy"><p class="eyebrow">Built on trust</p><h2>Your home is personal.<br />We treat it that way.</h2><p>Every professional on HandyHive is reviewed, verified, and rated by the community. Our support team is here before, during, and after every job.</p><a class="arrow-link" href="#safety">Learn about our safety promise <span>↗</span></a></div>
-        <div class="safety-list"><div><span>01</span><strong>Identity verified</strong><p>We check who’s coming to your door.</p></div><div><span>02</span><strong>Real community reviews</strong><p>Make decisions based on experience.</p></div><div><span>03</span><strong>Support that shows up</strong><p>Our team is always one message away.</p></div></div>
-      </section>
-    </main>
-
-    <footer><a class="brand" href="#"><span class="brand-mark">H</span><span>handy<span class="brand-accent">hive</span></span></a><p>Good work, close to home.</p><div><a href="#services">Services</a><a href="#pros">For pros</a><a href="#safety">Safety</a></div><small>© 2025 HandyHive Technologies</small></footer>
-
-    <div class="modal-backdrop" id="request-modal" role="dialog" aria-modal="true" aria-labelledby="request-title">
-      <div class="modal"><button class="modal-close" aria-label="Close">×</button><p class="eyebrow">Let’s get it handled</p><h2 id="request-title">What do you need help with?</h2><form id="request-form"><label>Service<input name="service" required placeholder="e.g. Fix a leaking tap" /></label><label>When do you need it?<select name="timing"><option>As soon as possible</option><option>Within a week</option><option>I’m flexible</option></select></label><label>Your email<input name="email" type="email" required placeholder="you@example.com" /></label><button class="button button-orange" type="submit">Find my pro <span>→</span></button></form><p class="form-success" hidden>Thanks! We’ll send you a few great matches shortly.</p></div>
-    </div>
-    <div class="modal-backdrop" id="pro-modal" role="dialog" aria-modal="true" aria-labelledby="pro-title">
-      <div class="modal"><button class="modal-close" aria-label="Close">×</button><p class="eyebrow">Put your skills to work</p><h2 id="pro-title">Join the HandyHive pro community.</h2><form id="pro-form"><label>Your name<input name="name" required placeholder="Full name" /></label><label>What do you do?<input name="trade" required placeholder="e.g. Electrician" /></label><label>Phone number<input name="phone" required placeholder="+91 98765 43210" /></label><button class="button button-dark" type="submit">Apply to join <span>→</span></button></form><p class="form-success" hidden>Application received! Our team will be in touch soon.</p></div>
-    </div>
-    <div class="toast" id="toast" role="status"></div>
-    <script src="script.js"></script>
+    <a class="skip-link" href="#content">Skip to content</a>
+    <header id="header"></header>
+    <main id="content" tabindex="-1"></main>
+    <footer id="footer"></footer>
+    <nav id="tabs" class="mobile-tabs" aria-label="Mobile navigation"></nav>
+    <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+    <div id="notice" class="toast" role="status" aria-atomic="true"></div>
+    <noscript>Enable JavaScript to browse and try the HandyHive marketplace.</noscript>
   </body>
 </html>
