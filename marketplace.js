@@ -116,8 +116,9 @@ function createMarketplace(adapter) {
       if (job.id === excludeId || job.proId !== person.id || !journeyStatuses.includes(job.status)) return false;
       if (job.status === "completed") return job.updatedAt + buffer > start && job.updatedAt <= end;
       const reservedStart = reservationStart(job);
-      const otherStart = Math.min(job.journeyStartedAt ?? reservedStart, reservedStart);
-      let otherEnd = reservedStart + duration(job) * minute;
+      const journeyStart = job.journeyStartedAt ?? reservedStart;
+      const otherStart = Math.min(journeyStart, reservedStart);
+      let otherEnd = Math.max(journeyStart, reservedStart) + duration(job) * minute;
       if (["en_route", "arrived", "in_progress"].includes(job.status)) otherEnd = Math.max(otherEnd, now + minute);
       return overlaps(start, end, otherStart - buffer, otherEnd + buffer);
     });
@@ -148,6 +149,10 @@ function createMarketplace(adapter) {
     if (checkAvailability && !immediate && !withinHours(person, start, end, now)) {
       return "The estimated job length does not fit this professional’s working hours.";
     }
+    return reservationError(person, job, state, start, end, now);
+  }
+
+  function reservationError(person, job, state, start, end, now) {
     if (person.blocks?.some((block) => overlaps(start, end, appointmentTime(block.start), appointmentTime(block.end)))) {
       return "This time overlaps a block in the professional’s schedule.";
     }
@@ -229,7 +234,7 @@ function createMarketplace(adapter) {
     }
     job.duration = duration(job);
     const error = slotError(person, job, state, now);
-    if (error) return { error };
+    if (error) return { error, code: "SLOT_UNAVAILABLE" };
     state.requests.unshift(job);
     save(state);
     return { job };
@@ -245,19 +250,28 @@ function createMarketplace(adapter) {
       arrived: { start: "in_progress" }, in_progress: { complete: "completed" },
     } : Object.fromEntries(cancellableStatuses.map((status) => [status, { cancel: "cancelled" }]));
     const next = actions[job.status]?.[action];
-    if (!next) return { error: "The request has changed. Check its latest status." };
+    if (!next) {
+      return {
+        error: "The request has changed. Check its latest status.",
+        code: job.status === "expired" ? "REQUEST_EXPIRED" : "BOOKING_CHANGED",
+      };
+    }
     const now = Date.now();
     if (next === "accepted") {
       const error = slotError(pro(job.proId, state), job, state, now);
-      if (error) return { error };
+      if (error) return { error, code: "SLOT_UNAVAILABLE" };
       if (job.timing === "now") job.reservedAt = now;
     }
-    if (["en_route", "arrived"].includes(next) && job.status === "accepted" && !job.appointment && !job.reservedAt) {
-      const error = slotError(pro(job.proId, state), { ...job, timing: "now" }, state, now, false);
-      if (error) return { error };
-      job.reservedAt = now;
+    if (["en_route", "arrived"].includes(next) && job.status === "accepted") {
+      const person = pro(job.proId, state);
+      if (!person) return { error: "This professional is unavailable." };
+      const plannedStart = reservationStart(job) || now;
+      const end = Math.max(now, plannedStart) + duration(job) * minute;
+      const error = reservationError(person, job, state, now, end, now);
+      if (error) return { error, code: "SLOT_UNAVAILABLE" };
+      if (!job.appointment && !job.reservedAt) job.reservedAt = now;
+      job.journeyStartedAt = now;
     }
-    if (["en_route", "arrived"].includes(next) && job.status === "accepted") job.journeyStartedAt = now;
     job.status = next;
     job.updatedAt = now;
     if (next !== "en_route") delete job.tracking;

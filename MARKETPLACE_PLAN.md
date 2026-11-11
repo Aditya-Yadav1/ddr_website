@@ -6,6 +6,8 @@ Updated 11 November 2026. Use this file as the starting point in a new session. 
 
 ## Direction and current state
 
+The final HandyHive product is a mobile app. The website is the working prototype and browser reference. The next implementation phase is the Android-first mobile foundation, with a private app pilot after the core flow works. See the [mobile app migration plan](APP_MIGRATION_PLAN.md) for the stack, backend changes, and acceptance criteria. The live SMS pilot can resume when a test phone is available.
+
 ### Token-saving workflow preference (11 November 2026)
 
 The user explicitly prioritizes saving tokens and wants model/effort recommendations before substantial work. Recommended default: Sol Medium for scoped implementation, UI changes, routine planning and handoff updates; Sol High for changes spanning booking state, routes and persistence, scheduling logic, and difficult debugging. Use Astra Medium for unresolved product/architecture tradeoffs; reserve Astra High for difficult architecture, concurrency/security review or problems still unresolved after focused diagnosis. These are project recommendations, not measured token savings or automatic model switches.
@@ -133,9 +135,9 @@ All six screens and the local pro inbox are implemented. Requests transition wit
 
 **Delhi and scheduling update — implemented:** Delhi-only areas, IST calendar/clock inputs and short scheduling presets, exact appointment across both roles, and isolation from older Bengaluru demo data.
 
-**2. Live foundation:** authentication/OTP, database, private credentials, profile/search APIs, authoritative booking transitions and availability. Deliver genuine in-app notifications plus opt-in web push; an optional configured fallback channel handles missed delivery. Add retries and delivery visibility. Contact requires an authorized channel and privacy controls.
+**2. Live and mobile foundation:** authentication/OTP, database, private credentials, profile/search APIs, authoritative booking transitions and availability. Build the native app against the shared backend. Deliver in-app updates and add native push for the private pilot. An optional configured SMS channel can handle missed delivery. Contact requires an authorized channel and privacy controls.
 
-**3. Launch readiness:** verification operations, support, cancellation rules, completed-job reviews and quote/payment integration as needed. Monitor conflicts/expiry/delivery failures. Add installable web-app behavior after the responsive flow works; offline requests must never appear submitted.
+**3. Launch readiness:** verification operations, support, cancellation rules, completed-job reviews and quote/payment integration as needed. Monitor conflicts, expiry and delivery failures. Verify the native app on the devices used in the pilot. Show a booking as submitted only after the server confirms it.
 
 ## Verification and remaining work
 
@@ -250,7 +252,7 @@ For later usability research, recruit a small exploratory group of Delhi workers
 
 **Planning review:** The existing Astra planner reviewed this direction and agreed with one shared platform and separate experiences. Its main concern was the mismatch between future calendar availability and a three-minute response promise; the proposal above records that open policy decision. It also emphasized worker-onboarding gates and complete translations for any bilingual flow.
 
-**Next session:** Prepare an SMS pilot with a configured provider account, then review hosting, retention and support before offering the service beyond this computer. The current preview uses browser polling.
+**Next session:** Start the mobile foundation with the Android emulator and a shared-backend booking. The SMS pilot remains available when a test phone and provider account are ready. The current browser preview uses polling.
 
 ## Visual preferences recorded 11 November 2026
 
@@ -279,4 +281,10 @@ For a controlled SMS pilot, set these environment variables and run `node server
 
 Booking SMS starts off for every account. After a user opts in, future updates are queued. The queue skips stale updates and cancels queued sends on opt-out. It retries explicit rate limits twice with backoff. Timeouts and uncertain submissions are held for review to avoid sending duplicates. A submitted message records the provider ID for lookup in Twilio. Carrier delivery receipts and inbound STOP handling still need pilot setup and validation.
 
-Next, provision the provider account and run a controlled test with a consenting recipient. This slice used simulated provider responses and the local preview.
+### Controlled SMS pilot
+
+1. Start with Verify only. Set the three Verify credentials in the shell that launches Node, select `HANDYHIVE_PHONE_MODE=twilio`, and leave `TWILIO_MESSAGING_SERVICE_SID` unset. Keep credentials outside the repository. Use a separate pilot database via `HANDYHIVE_DB` if an existing `verified.sqlite` must be preserved.
+2. Open `http://127.0.0.1:4174/#/account` on the host machine. Request a code for a consenting tester’s Indian mobile number. Confirm it arrives on the handset, enter it, and refresh to confirm the session persists. Record the result and any Verify error code without saving the OTP or the full phone number.
+3. For booking SMS, configure the Messaging Service and confirm the sender and templates for the selected India route. Confirm how the sender handles opt-out before testing. Use two consenting verified accounts in separate browser profiles. Publish a worker profile, opt in from its Account page, and send one sample request from the customer. Compare the message on the handset with the Twilio Console delivery status. Turn off booking SMS in Account and send a fresh request to verify that it produces only an in-app update. If the sender supports replies, also verify that STOP suppresses subsequent messages.
+
+Local pilot rehearsal passed against simulated Twilio responses with a fresh SQLite database. It covered verified sign-in, rejection of wrong and reused codes, booking SMS defaulting to off, one submission for a replayed request after opt-in, and suppression after opt-out. Live delivery and the selected sender’s opt-out behavior remain unverified.

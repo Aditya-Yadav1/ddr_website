@@ -700,7 +700,7 @@ function workspaceJob(job, person) {
       ${actions[job.status] ? `<div class="action-row">${actions[job.status]}</div>` : ""}
       <p id="form-error" role="alert" class="error" hidden></p></section>
       ${Tracking.render(job, "pro")}${Contact.actions(job, "pro")}
-      ${["pending", "accepted"].includes(job.status) ? `<form id="job-duration-form" class="panel details stack" data-job="${esc(job.id)}" data-pro="${esc(person.id)}">
+      ${["pending", "accepted"].includes(job.status) ? `<form id="job-duration-form" class="panel details stack" data-job="${esc(job.id)}" data-pro="${esc(person.id)}" data-status="${job.status}">
         <h2>${t("Time estimate")}</h2><label>${t("Estimated duration (min)")}<input type="number" name="duration" value="${M.duration(job)}" min="15" max="720" required></label>
         <p class="muted">${t("Used to reserve time in your schedule. Your listed rate stays the same.")}</p>
         <p class="error" role="alert" hidden data-form-error></p>
@@ -1349,12 +1349,20 @@ function refreshConnectedView() {
     render(true);
     return;
   }
-  if (dialog.open) {
+  const workerJob = workerContext(r, state)?.job;
+  if (dialog.open && !(r.page === "bookings" && r.id) && !workerJob) {
     Contact.sync(state);
     return;
   }
-  if (["join", "request", "account"].includes(r.page) && content.contains(document.activeElement)) return;
-  if (r.page === "workspace" && document.activeElement.closest("form")) return;
+  const focused = document.activeElement;
+  if (["join", "request", "account"].includes(r.page) && focused !== content && content.contains(focused)) return;
+  const form = focused.closest("form");
+  if (r.page === "workspace" && form && content.contains(form)) {
+    if (form.id !== "job-duration-form" || workerJob?.status === form.dataset.status) return;
+    render();
+    content.focus({ preventScroll: true });
+    return;
+  }
   render();
 }
 

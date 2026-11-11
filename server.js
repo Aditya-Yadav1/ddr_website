@@ -10,7 +10,7 @@ const createTwilio = require("./twilio.js");
 const createBookingUpdates = require("./booking-updates.js");
 
 const port = Number(process.env.HANDYHIVE_PORT || 4174);
-const origin = "http://127.0.0.1:" + port;
+let origin = "http://127.0.0.1:" + port;
 const phoneMode = process.env.HANDYHIVE_PHONE_MODE || "preview";
 if (!["preview", "twilio"].includes(phoneMode)) throw new Error("HANDYHIVE_PHONE_MODE must be preview or twilio.");
 const twilio = createTwilio(process.env);
@@ -22,16 +22,25 @@ db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=
 db.exec(
   "CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, handle TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, password TEXT NOT NULL);" +
   "CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES accounts(id), expires INTEGER NOT NULL);" +
+  "CREATE TABLE IF NOT EXISTS native_sessions (token TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES accounts(id), expires INTEGER NOT NULL);" +
+  "CREATE TABLE IF NOT EXISTS native_operations (owner TEXT NOT NULL REFERENCES accounts(id), id TEXT NOT NULL, fingerprint TEXT NOT NULL, job TEXT NOT NULL, PRIMARY KEY (owner, id));" +
+  "CREATE TABLE IF NOT EXISTS marketplace_revision (id INTEGER PRIMARY KEY CHECK (id = 1), value INTEGER NOT NULL);" +
+  "INSERT OR IGNORE INTO marketplace_revision VALUES (1, 0);" +
   "CREATE TABLE IF NOT EXISTS marketplace (id INTEGER PRIMARY KEY CHECK (id = 1), body TEXT NOT NULL);" +
   "INSERT OR IGNORE INTO marketplace VALUES (1, '{\"profiles\":[],\"requests\":[]}');"
 );
 
 const getStore = db.prepare("SELECT body FROM marketplace WHERE id=1");
 const putStore = db.prepare("UPDATE marketplace SET body=? WHERE id=1");
+const getRevision = db.prepare("SELECT value FROM marketplace_revision WHERE id=1");
+const advanceRevision = db.prepare("UPDATE marketplace_revision SET value=value+1 WHERE id=1");
+const getOperation = db.prepare("SELECT fingerprint, job FROM native_operations WHERE owner=? AND id=?");
+const putOperation = db.prepare("INSERT INTO native_operations VALUES (?,?,?,?)");
 const accountByHandle = db.prepare("SELECT * FROM accounts WHERE handle=?");
-const sessionAccount = db.prepare("SELECT accounts.id, accounts.handle FROM sessions JOIN accounts ON accounts.id=sessions.owner WHERE token=? AND expires>?");
 const sessionAge = 7 * 24 * 60 * 60;
 const cookieName = "handyhive_preview";
+const browserSessions = sessionStore("sessions");
+const nativeSessions = sessionStore("native_sessions");
 const authAttempts = new Map();
 db.exec("CREATE TABLE IF NOT EXISTS phone_challenges (id TEXT PRIMARY KEY, phone TEXT NOT NULL, hash TEXT NOT NULL, expires INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS phone_accounts (phone TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES accounts(id)); CREATE TABLE IF NOT EXISTS phone_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, resets INTEGER NOT NULL);");
 db.exec("CREATE TABLE IF NOT EXISTS auth_mode (id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL);");
@@ -47,8 +56,8 @@ const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex"
 const hashPassword = (password, salt) => crypto.scryptSync(password, salt, 64);
 const owns = (account, job, role) => Boolean(account && job && (role === "pro" ? job.proId === account.id : role === "customer" && job.customerId === account.id));
 
-function failure(status, message) {
-  return Object.assign(new Error(message), { status });
+function failure(status, message, code) {
+  return Object.assign(new Error(message), { status, code });
 }
 
 function writeTransaction(action) {
@@ -63,7 +72,7 @@ function writeTransaction(action) {
   }
 }
 
-function transact(account, action, query) {
+function transact(account, action, query, native = false) {
   // Bookings, slot reservations and notifications commit together.
   return writeTransaction(() => {
     const original = getStore.get().body;
@@ -85,13 +94,20 @@ function transact(account, action, query) {
     const body = JSON.stringify({ profiles, requests: state.requests });
     if (body !== original) {
       putStore.run(body);
+      advanceRevision.run();
       updates.record(store.requests, state.requests);
     }
-    return query ? { ...result, state: snapshot(market, state, query) } : result;
+    if (!query) return result;
+    const response = { ...result, state: snapshot(market, state, query, native) };
+    if (native) {
+      response.revision = getRevision.get().value;
+      response.serverTime = Date.now();
+    }
+    return response;
   });
 }
 
-function snapshot(market, state, query) {
+function snapshot(market, state, query, native) {
   const account = state.account;
   const directory = state.profiles.filter((profile) => profile.published).map(({ blocks, ...profile }) => profile);
   const params = { area: query.get("area"), appointment: query.get("appointment") || "", timing: query.get("timing") || "" };
@@ -100,17 +116,31 @@ function snapshot(market, state, query) {
     ids: market.pros(state).filter((profile) => profile.id !== account?.id
       && market.available(profile, params.area, params.appointment, state, params.timing)).map((profile) => profile.id),
   } : null;
+  const { bookingUpdates, bookingSms } = updates.forAccount(account);
   return {
     account, profile: state.profile, profiles: directory, matches,
-    ...updates.forAccount(account),
+    bookingUpdates, ...(!native && { bookingSms }),
+    ...(native && { catalog: {
+      services: market.services.map(({ id, name, tasks }) => ({ id, name, tasks })),
+      defaultHours: market.defaultHours,
+    } }),
     requests: state.requests.filter((job) => owns(account, job, "customer") || owns(account, job, "pro")),
   };
 }
 
-function accountFor(req) {
+function sessionStore(table) {
+  return {
+    account: db.prepare(`SELECT accounts.id, accounts.handle FROM ${table} JOIN accounts ON accounts.id=owner WHERE token=? AND expires>?`),
+    insert: db.prepare(`INSERT INTO ${table} VALUES (?,?,?)`),
+    purge: db.prepare(`DELETE FROM ${table} WHERE expires<=?`),
+    revoke: db.prepare(`DELETE FROM ${table} WHERE token=?`),
+  };
+}
+
+function sessionToken(req, native) {
+  if (native) return /^Bearer ([a-f0-9]{64})$/i.exec(req.headers.authorization || "")?.[1];
   const entry = (req.headers.cookie || "").split(";").map((item) => item.trim()).find((item) => item.startsWith(cookieName + "="));
-  const token = entry?.slice(cookieName.length + 1);
-  return token ? sessionAccount.get(sha256(token), Date.now()) || null : null;
+  return entry?.slice(cookieName.length + 1);
 }
 
 async function startPhone(input, req) {
@@ -142,7 +172,7 @@ async function startPhone(input, req) {
   return { challenge: id, expiresAt: expires, ...(code ? { previewCode: code } : {}) };
 }
 
-async function verifyPhone(input, res) {
+async function verifyPhone(input) {
   if (typeof input.challenge !== "string" || typeof input.code !== "string" || !/^\d{6}$/.test(input.code)) {
     throw failure(400, "Enter the six-digit code.");
   }
@@ -160,7 +190,7 @@ async function verifyPhone(input, res) {
     approved = crypto.timingSafeEqual(Buffer.from(challenge.hash, "hex"), Buffer.from(sha256(challenge.id + input.code), "hex"));
   }
   if (!approved) throw failure(400, "The code is incorrect or has expired.");
-  const account = writeTransaction(() => {
+  return writeTransaction(() => {
     if (!db.prepare("DELETE FROM phone_challenges WHERE id=? AND expires>?").run(challenge.id, Date.now()).changes) {
       throw unavailable();
     }
@@ -172,10 +202,9 @@ async function verifyPhone(input, res) {
     db.prepare("INSERT INTO phone_accounts VALUES (?,?)").run(challenge.phone, account.id);
     return account;
   });
-  return createSession(account, res);
 }
 
-function signIn(action, input, req, res) {
+function signIn(action, input, req) {
   const handle = typeof input.handle === "string" ? input.handle.trim().toLowerCase() : "";
   const password = input.password;
   if (!/^[a-z0-9_-]{3,32}$/.test(handle) || typeof password !== "string" || password.length < 12 || password.length > 128) {
@@ -201,16 +230,16 @@ function signIn(action, input, req, res) {
       throw failure(401, "The username or password is incorrect.");
     }
   }
-  return createSession(account, res);
+  return { id: account.id, handle: account.handle };
 }
 
-function createSession(account, res) {
+function createSession(account, sessions) {
   const now = Date.now();
   const token = crypto.randomBytes(32).toString("hex");
-  db.prepare("DELETE FROM sessions WHERE expires<=?").run(now);
-  db.prepare("INSERT INTO sessions VALUES (?,?,?)").run(sha256(token), account.id, now + sessionAge * 1000);
-  res.setHeader("Set-Cookie", cookieName + "=" + token + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=" + sessionAge);
-  return { id: account.id, handle: account.handle };
+  const expiresAt = now + sessionAge * 1000;
+  sessions.purge.run(now);
+  sessions.insert.run(sha256(token), account.id, expiresAt);
+  return { token, expiresAt };
 }
 
 function validateProfile(market, input, previous, account) {
@@ -323,35 +352,95 @@ function send(res, status, body) {
 const staticFiles = new Set(["index.html", "appearance.js", "marketplace.js", "worker-language.js", "walkthrough.js",
   "tracking.js", "contact.js", "live-preview.js", "script.js", "styles.css"]);
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".jpg": "image/jpeg" };
+const nativeActions = new Set(["state", "register", "login", "logout", "phone-start", "phone-verify",
+  "profile", "request", "transition", "message"]);
+const operationFields = new Map([
+  ["request", ["intent", "proId", "scope", "area", "appointment", "timing", "contact"]],
+  ["transition", ["job", "role", "change"]],
+  ["message", ["job", "role", "message"]],
+]);
+const errorCodes = {
+  401: "AUTHENTICATION_REQUIRED", 403: "FORBIDDEN", 404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED",
+  409: "CONFLICT", 413: "PAYLOAD_TOO_LARGE", 415: "UNSUPPORTED_MEDIA_TYPE",
+  429: "RATE_LIMITED", 500: "SERVER_ERROR", 503: "SERVICE_UNAVAILABLE",
+};
 
-http.createServer(async (req, res) => {
+function nativeMutation(action, market, state, input) {
+  const fields = operationFields.get(action);
+  if (!fields) return mutate(action, market, state, input);
+  const { operationId } = input;
+  if (typeof operationId !== "string" || !/^[a-zA-Z0-9-]{8,64}$/.test(operationId)) {
+    throw failure(400, "Provide a valid operationId for this booking action.", "INVALID_OPERATION_ID");
+  }
+  const values = fields.map((field) => input[field]);
+  if (values.some((value) => value !== undefined && typeof value !== "string")) {
+    throw failure(400, "Check the booking details.");
+  }
+  const fingerprint = sha256(JSON.stringify([action, values]));
+  const previous = getOperation.get(state.account.id, operationId);
+  if (previous) {
+    if (previous.fingerprint !== fingerprint) {
+      throw failure(409, "This operationId was already used for another request.", "OPERATION_ID_REUSED");
+    }
+    return { jobId: previous.job };
+  }
+  const result = mutate(action, market, state, input);
+  if (result.error) return { ...result, code: result.code || "BOOKING_CONFLICT" };
+  const jobId = result.job.id;
+  putOperation.run(state.account.id, operationId, fingerprint, jobId);
+  return { jobId };
+}
+
+async function handleApi(req, res, url, native) {
+  const action = url.pathname.slice(native ? "/api/v1/".length : "/api/".length);
+  if (native && !nativeActions.has(action)) throw failure(404, "This action is unavailable.");
+  const sessions = native ? nativeSessions : browserSessions;
+  const token = sessionToken(req, native);
+  const readAccount = () => token ? sessions.account.get(sha256(token), Date.now()) || null : null;
+  const snapshotFor = (account, action = () => ({})) => transact(account, action, url.searchParams, native);
+
+  if (req.method === "GET" && action === "state") {
+    const account = readAccount();
+    if (native && !account) throw failure(401, "Sign in to continue.");
+    return send(res, 200, snapshotFor(account));
+  }
+  if (req.method !== "POST" || (native && action === "state")) throw failure(405, "Method unavailable.");
+  const input = await readBody(req);
+  if (action === "phone-start") return send(res, 200, await startPhone(input, req));
+  if (action === "logout") {
+    if (token) sessions.revoke.run(sha256(token));
+    if (native) return send(res, 200, { signedOut: true });
+    res.setHeader("Set-Cookie", cookieName + "=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
+    return send(res, 200, snapshotFor(null));
+  }
+  if (["register", "login", "phone-verify"].includes(action)) {
+    if (twilio && action !== "phone-verify") throw failure(404, "Use phone sign-in.");
+    const account = action === "phone-verify" ? await verifyPhone(input) : signIn(action, input, req);
+    const session = createSession(account, sessions);
+    const response = snapshotFor(account);
+    if (native) return send(res, 200, { ...response, session });
+    res.setHeader("Set-Cookie", cookieName + "=" + session.token + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=" + sessionAge);
+    return send(res, 200, response);
+  }
+  const account = readAccount();
+  if (native && !account) throw failure(401, "Sign in to continue.");
+  const applyMutation = native ? nativeMutation : mutate;
+  const response = snapshotFor(account, (market, read) => applyMutation(action, market, read(), input));
+  return send(res, response.error ? 409 : 200, response);
+}
+
+const server = http.createServer(async (req, res) => {
+  let native = false;
   try {
-    if (req.headers.host !== new URL(origin).host) throw failure(400, "Use " + origin + ".");
-    res.setHeader("X-Content-Type-Options", "nosniff");
     const url = new URL(req.url, origin);
+    native = url.pathname.startsWith("/api/v1/");
+    const emulatorHost = "10.0.2.2:" + server.address().port;
+    if (req.headers.host !== new URL(origin).host && !(native && req.headers.host === emulatorHost)) {
+      throw failure(400, "Use " + origin + ".");
+    }
+    res.setHeader("X-Content-Type-Options", "nosniff");
     if (url.pathname.startsWith("/api/")) {
-      const action = url.pathname.slice(5);
-      if (req.method === "GET" && action === "state") {
-        return send(res, 200, transact(accountFor(req), () => ({}), url.searchParams));
-      }
-      if (req.method !== "POST") throw failure(405, "Method unavailable.");
-      const input = await readBody(req);
-      let account = accountFor(req);
-      if (action === "phone-start") return send(res, 200, await startPhone(input, req));
-      if (action === "phone-verify") account = await verifyPhone(input, res);
-      if (action === "register" || action === "login") {
-        if (twilio) throw failure(404, "Use phone sign-in.");
-        account = signIn(action, input, req, res);
-      }
-      if (action === "logout") {
-        const token = (req.headers.cookie || "").match(/(?:^|;\s*)handyhive_preview=([a-f0-9]{64})(?:;|$)/)?.[1];
-        if (token) db.prepare("DELETE FROM sessions WHERE token=?").run(sha256(token));
-        res.setHeader("Set-Cookie", cookieName + "=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
-        account = null;
-      }
-      const auth = ["register", "login", "logout", "phone-verify"].includes(action);
-      const response = transact(account, (market, read) => auth ? {} : mutate(action, market, read(), input), url.searchParams);
-      return send(res, response.error ? 409 : 200, response);
+      return await handleApi(req, res, url, native);
     }
     const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
     if (req.method !== "GET" || (!staticFiles.has(file) && !/^assets\/(?:hero|service-[1-4]|pro-[1-8])\.jpg$/.test(file))) {
@@ -363,10 +452,31 @@ http.createServer(async (req, res) => {
     res.end(body);
   } catch (error) {
     if (!error.status) console.error(error);
-    if (!res.headersSent) send(res, error.status || 500, { error: error.status ? error.message : "The preview server could not complete this request." });
-    else res.end();
+    if (res.headersSent) return res.end();
+    const status = error.status || 500;
+    const body = { error: error.status ? error.message : "The preview server could not complete this request." };
+    if (native) body.code = error.code || errorCodes[status] || "INVALID_REQUEST";
+    send(res, status, body);
   }
-}).listen(port, "127.0.0.1", () => console.log("HandyHive connected preview: " + origin));
+}).listen(port, "127.0.0.1", () => {
+  origin = "http://127.0.0.1:" + server.address().port;
+  console.log("HandyHive connected preview: " + origin);
+});
+
+function expireBookings() {
+  try {
+    const now = Date.now();
+    const { requests } = JSON.parse(getStore.get().body);
+    if (requests.some((job) => job.status === "pending" && job.deadline <= now)) {
+      transact(null, () => ({}));
+    }
+  } catch (error) {
+    console.error("Booking expiry sweep failed", error);
+  }
+}
+
+expireBookings();
+setInterval(expireBookings, 2000).unref();
 
 if (twilio?.sendBooking) {
   let delivering = false;
@@ -374,7 +484,6 @@ if (twilio?.sendBooking) {
     if (delivering) return;
     delivering = true;
     try {
-      transact(null, () => ({}));
       await updates.deliver();
     } catch (error) {
       console.error("Booking notification queue error", error);
