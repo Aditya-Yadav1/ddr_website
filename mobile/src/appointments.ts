@@ -1,8 +1,12 @@
 import type { Hours, Profile } from "./api";
 
+export function istDay(serverTime: number) {
+  return new Date(serverTime + 19_800_000).toISOString().slice(0, 10);
+}
+
 export function appointmentDays(serverTime: number, hours: Hours) {
   const todayInIndia = serverTime + 19_800_000;
-  return Array.from({ length: 7 }, (_, offset) => new Date(todayInIndia + (offset + 1) * 86_400_000))
+  return Array.from({ length: 8 }, (_, offset) => new Date(todayInIndia + offset * 86_400_000))
     .filter((day) => hours.days.includes(day.getUTCDay()))
     .map((day) => day.toISOString().slice(0, 10));
 }

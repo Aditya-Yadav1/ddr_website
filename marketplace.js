@@ -164,8 +164,26 @@ function createMarketplace(adapter) {
   }
 
   function available(person, area, appointment = "", state = read(), timing = "") {
-    return Boolean(person?.published && person.areas.includes(area)
+    return Boolean(person?.published && serviceArea(area, person.areas)
       && !slotError(person, { appointment, timing, unit: person.unit }, state));
+  }
+
+  function serviceArea(location, servedAreas) {
+    if (typeof location !== "string" || location.trim().length < 2 || location.length > 120) return null;
+    const aliases = { "लाजपत नगर": "lajpat nagar", "द्वारका": "dwarka", "रोहिणी": "rohini", "साकेत": "saket" };
+    const key = (value) => {
+      const normalized = value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]+/gu, " ").trim()
+        .replace(/(?:^| )(?:new delhi|delhi ncr|delhi|नई दिल्ली|नयी दिल्ली|दिल्ली)(?: india| भारत)?$/u, "").trim();
+      return aliases[normalized] || normalized;
+    };
+    const wanted = key(location);
+    return servedAreas.find((area) => {
+      const covered = key(area);
+      if (covered === wanted) return true;
+      if (!covered || !(wanted.startsWith(covered + " ") || wanted.endsWith(" " + covered))) return false;
+      const extra = wanted.startsWith(covered + " ") ? wanted.slice(covered.length).trim() : wanted.slice(0, -covered.length).trim();
+      return /^(?:(?:sector|sec|block|phase|pocket|सेक्टर|ब्लॉक|फेज|पॉकेट)\s*)?(?:[a-z]|\d{1,3}|[ivx]{1,4})$/u.test(extra);
+    }) || null;
   }
 
   function blockSchedule(start, end) {
@@ -209,21 +227,38 @@ function createMarketplace(adapter) {
     return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
-  function request({ intent, proId, scope, area, appointment = "", timing = "", contact }) {
+  function request({ intent, proId, scope, area, appointment = "", timing = "", contact,
+    tier = "everyday", expectedPrice, expectedUnit, expectedIncludes, expectedIncludesHi, requestFingerprint, details }) {
     const state = current();
     const existing = state.requests.find((job) => job.intent === intent
       && (!state.connected || job.customerId === state.account.id)
-      && (activeStatuses.includes(job.status) || (state.connected && job.proId === proId)));
-    if (existing) return { job: existing };
+      && (requestFingerprint || activeStatuses.includes(job.status) || (state.connected && job.proId === proId)));
+    if (existing) {
+      if (existing.requestFingerprint !== requestFingerprint) {
+        return { error: "This request was already sent with different details.", code: "INTENT_REUSED" };
+      }
+      return { job: existing };
+    }
     const person = pro(proId, state);
     const trade = service(person?.service);
     const now = Date.now();
-    if (!trade?.tasks.includes(scope) || !person.areas.includes(area)) {
-      return { error: "This professional is unavailable for that service or neighbourhood." };
+    if (!trade?.tasks.includes(scope) || !serviceArea(area, person.areas)) {
+      return { error: "This worker does not serve the requested location.", code: "LOCATION_UNAVAILABLE" };
+    }
+    const plus = tier === "plus" ? person.plus : null;
+    const price = plus?.price ?? person.price;
+    if ((tier === "plus" && !plus) || (expectedPrice !== undefined
+      && (expectedPrice !== price || expectedUnit !== person.unit
+        || expectedIncludes !== (plus?.includes || "") || expectedIncludesHi !== (plus?.includesHi || "")))) {
+      return { error: "This option changed. Review the current rate and inclusions before sending.", code: "OFFER_CHANGED" };
     }
     const job = {
       id: id(), intent, proId, scope, area, appointment, timing: !appointment && timing === "now" ? "now" : "", contact, service: trade.id,
-      proName: person.name, price: person.price, unit: person.unit, status: "pending",
+      proName: person.name, price, unit: person.unit, status: "pending",
+      tier, minimumQuantity: person.unit === "hourly" ? 2 : 1,
+      ...(plus && { includes: plus.includes, includesHi: plus.includesHi || "" }),
+      ...(requestFingerprint && { requestFingerprint }),
+      ...(details && { details }),
       createdAt: now, updatedAt: now, deadline: now + responseWindow, messages: [],
     };
     if (state.connected) {
@@ -261,6 +296,7 @@ function createMarketplace(adapter) {
       const error = slotError(pro(job.proId, state), job, state, now);
       if (error) return { error, code: "SLOT_UNAVAILABLE" };
       if (job.timing === "now") job.reservedAt = now;
+      job.acceptedAt = now;
     }
     if (["en_route", "arrived"].includes(next) && job.status === "accepted") {
       const person = pro(job.proId, state);
@@ -373,7 +409,7 @@ function createMarketplace(adapter) {
   }
 
   return { city, areas, units, services, statuses, read, save, reset, current, expire,
-    pros, pro, service, matches, available, id, request, transition, contact, unread, readChat, track,
+    pros, pro, service, matches, available, serviceArea, id, request, transition, contact, unread, readChat, track,
     position, localAppointment, appointmentTime, appointmentLabel, journeyStatuses, activeStatuses,
     immediateEnabled, acceptsAppointments, duration, defaultHours, blockSchedule, updateDuration, agenda,
     cancellableStatuses, storageKey: key };

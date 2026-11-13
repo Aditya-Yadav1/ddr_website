@@ -8,8 +8,11 @@ const { DatabaseSync } = require("node:sqlite");
 const createMarketplace = require("./marketplace.js");
 const createTwilio = require("./twilio.js");
 const createBookingUpdates = require("./booking-updates.js");
+const createPlaceSearch = require("./place-search.js");
+const searchPlaces = createPlaceSearch({ endpoint: process.env.HANDYHIVE_GEOCODER_URL });
 
 const port = Number(process.env.HANDYHIVE_PORT || 4174);
+const appPreview = process.env.HANDYHIVE_APP_PREVIEW === "1" ? path.join(__dirname, "mobile", "dist") : null;
 let origin = "http://127.0.0.1:" + port;
 const phoneMode = process.env.HANDYHIVE_PHONE_MODE || "preview";
 if (!["preview", "twilio"].includes(phoneMode)) throw new Error("HANDYHIVE_PHONE_MODE must be preview or twilio.");
@@ -56,6 +59,13 @@ const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex"
 const hashPassword = (password, salt) => crypto.scryptSync(password, salt, 64);
 const owns = (account, job, role) => Boolean(account && job && (role === "pro" ? job.proId === account.id : role === "customer" && job.customerId === account.id));
 
+function bookingForAccount({ details, requestFingerprint, ...job }, account) {
+  return {
+    ...job, tier: job.tier || "everyday", minimumQuantity: job.minimumQuantity ?? (job.unit === "hourly" ? 2 : 1),
+    ...((owns(account, job, "customer") || (owns(account, job, "pro") && job.acceptedAt)) && details && { details }),
+  };
+}
+
 function failure(status, message, code) {
   return Object.assign(new Error(message), { status, code });
 }
@@ -99,6 +109,7 @@ function transact(account, action, query, native = false) {
     }
     if (!query) return result;
     const response = { ...result, state: snapshot(market, state, query, native) };
+    if (result.job) response.job = bookingForAccount(result.job, account);
     if (native) {
       response.revision = getRevision.get().value;
       response.serverTime = Date.now();
@@ -111,7 +122,7 @@ function snapshot(market, state, query, native) {
   const account = state.account;
   const directory = state.profiles.filter((profile) => profile.published).map(({ blocks, ...profile }) => profile);
   const params = { area: query.get("area"), appointment: query.get("appointment") || "", timing: query.get("timing") || "" };
-  const matches = market.areas.includes(params.area) ? {
+  const matches = typeof params.area === "string" && params.area.trim().length >= 2 && params.area.length <= 120 ? {
     ...params,
     ids: market.pros(state).filter((profile) => profile.id !== account?.id
       && market.available(profile, params.area, params.appointment, state, params.timing)).map((profile) => profile.id),
@@ -120,11 +131,13 @@ function snapshot(market, state, query, native) {
   return {
     account, profile: state.profile, profiles: directory, matches,
     bookingUpdates, ...(!native && { bookingSms }),
-    ...(native && { catalog: {
-      services: market.services.map(({ id, name, tasks }) => ({ id, name, tasks })),
+    ...(native && { phoneMode, catalog: {
+      areas: [...new Set([...market.areas, ...directory.flatMap((profile) => profile.areas)])],
+      services: market.services.map(({ id, name, tasks, note }) => ({ id, name, tasks, note })),
       defaultHours: market.defaultHours,
     } }),
-    requests: state.requests.filter((job) => owns(account, job, "customer") || owns(account, job, "pro")),
+    requests: state.requests.filter((job) => owns(account, job, "customer") || owns(account, job, "pro"))
+      .map((job) => bookingForAccount(job, account)),
   };
 }
 
@@ -242,26 +255,42 @@ function createSession(account, sessions) {
   return { token, expiresAt };
 }
 
-function validateProfile(market, input, previous, account) {
+function validateProfile(market, input, previous, account, native) {
   const text = (value, max) => typeof value === "string" ? value.trim().slice(0, max) : "";
   const name = text(input.name, 60);
   const bio = text(input.bio, 360);
   const { service, unit, years, price } = input;
-  const areas = Array.isArray(input.areas) ? [...new Set(input.areas)] : [];
+  const areas = Array.isArray(input.areas) ? [...new Set(input.areas.map((area) => text(area, 80)))] : [];
   const languages = Array.isArray(input.languages) ? input.languages.slice(0, 10).map((value) => text(value, 30)).filter(Boolean) : [];
   if (!name || !bio || !market.service(service) || !Object.hasOwn(market.units, unit)
-    || !areas.length || !areas.every((area) => market.areas.includes(area))
+    || !areas.length || areas.length > 20 || !areas.every((area) => area.length >= 2 && /[\p{L}]/u.test(area))
     || !Number.isInteger(years) || years < 0 || years > 70 || !Number.isInteger(price) || price < 1 || price > 100000) {
     throw failure(400, "Check the name, service, areas, experience, description and rate.");
   }
+  let plus = previous?.plus ?? null;
+  if (native && Object.hasOwn(input, "plus")) {
+    const offer = input.plus;
+    if (offer === null) plus = null;
+    else {
+      const includes = text(offer?.includes, 220);
+      const includesHi = text(offer?.includesHi, 220);
+      if (!Number.isInteger(offer?.price) || offer.price <= price || offer.price > 100000 || !includes) {
+        throw failure(400, "Set a higher Plus rate and describe the extra work included.", "INVALID_PLUS");
+      }
+      plus = { price: offer.price, includes, includesHi };
+    }
+  } else if (plus && (plus.price <= price || previous.service !== service || previous.unit !== unit)) {
+    throw failure(400, "Update your Plus option in the app before changing its service, price or billing unit.", "INVALID_PLUS");
+  }
   return {
-    ...previous, id: account.id, name, bio, service, unit, years, price, areas, languages,
-    credential: text(input.credential, 100), published: true, sample: false,
+    ...previous, id: account.id, name, bio, service, unit, years, price, areas, languages, plus,
+    ...(native && typeof input.bioHi === "string" && { bioHi: text(input.bioHi, 360) }),
+    credential: text(input.credential, 100), published: native ? previous?.published ?? true : true, sample: false,
     hours: previous?.hours || market.defaultHours, immediate: previous?.immediate ?? false,
   };
 }
 
-function mutate(action, market, state, input) {
+function mutate(action, market, state, input, native = false, requestFingerprint) {
   const { account, profile } = state;
   if (!account) throw failure(401, "Sign in to continue.");
   if (action === "booking-sms") {
@@ -274,7 +303,7 @@ function mutate(action, market, state, input) {
     market.save({ ...state, profile: { ...profile, ...patch } });
     return {};
   };
-  if (action === "profile") return saveProfile(validateProfile(market, input, profile, account));
+  if (action === "profile") return saveProfile(validateProfile(market, input, profile, account, native));
   if (["hours", "immediate", "published", "block", "remove-block"].includes(action)) {
     if (!profile) throw failure(400, "Create a worker profile first.");
     if (action === "hours") {
@@ -297,13 +326,30 @@ function mutate(action, market, state, input) {
     return saveProfile({ blocks: (profile.blocks || []).filter((block) => block.id !== input.id) });
   }
   if (action === "request") {
-    const { intent, proId, scope, area, appointment = "", timing = "", contact } = input;
-    if (![intent, proId].every((value) => typeof value === "string" && /^[a-zA-Z0-9-]{8,64}$/.test(value))
+    const { intent, proId, scope, area, appointment = "", timing = "", contact, tier,
+      expectedPrice, expectedUnit, expectedIncludes, expectedIncludesHi } = input;
+    if (typeof area !== "string" || area.trim().length < 2 || area.length > 120
+      || ![intent, proId].every((value) => typeof value === "string" && /^[a-zA-Z0-9-]{8,64}$/.test(value))
       || proId === account.id || typeof appointment !== "string" || !["", "now"].includes(timing)
       || !["In-app message", "Request a call"].includes(contact)) {
       throw failure(400, "Choose another professional and check the request details.");
     }
-    return market.request({ intent, proId, scope, area, appointment, timing, contact });
+    const usesOffer = native && (tier !== undefined || expectedPrice !== undefined || input.address !== undefined);
+    let details;
+    if (usesOffer) {
+      const { customerName, address, landmark = "", notes = "" } = input;
+      if (!["everyday", "plus"].includes(tier) || !Number.isInteger(expectedPrice)
+        || !Object.hasOwn(market.units, expectedUnit) || typeof expectedIncludes !== "string" || typeof expectedIncludesHi !== "string"
+        || ![customerName, address, landmark, notes].every((value) => typeof value === "string")
+        || !customerName.trim() || customerName.length > 60 || address.trim().length < 8 || address.length > 220
+        || landmark.length > 100 || notes.length > 280 || (!appointment && timing !== "now")) {
+        throw failure(400, "Check your name, address, appointment and selected rate.", "INVALID_BOOKING_DETAILS");
+      }
+      details = { customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim() };
+    }
+    return market.request({ intent, proId, scope, area, appointment, timing, contact, requestFingerprint,
+      ...(usesOffer && { tier, expectedPrice, expectedUnit, expectedIncludes, expectedIncludesHi, details }),
+    });
   }
   const job = state.requests.find((item) => item.id === input.job);
   if (!owns(account, job, input.role)) throw failure(404, "Request unavailable.");
@@ -352,12 +398,15 @@ function send(res, status, body) {
 const staticFiles = new Set(["index.html", "appearance.js", "marketplace.js", "worker-language.js", "walkthrough.js",
   "tracking.js", "contact.js", "live-preview.js", "script.js", "styles.css"]);
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".jpg": "image/jpeg" };
-const nativeActions = new Set(["state", "register", "login", "logout", "phone-start", "phone-verify",
-  "profile", "request", "transition", "message"]);
+const appMime = { ...mime, ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
+const nativeActions = new Set(["state", "slots", "coverage", "locations", "register", "login", "logout", "phone-start", "phone-verify", "config",
+  "profile", "hours", "published", "immediate", "block", "remove-block", "request", "transition", "message", "estimate"]);
 const operationFields = new Map([
-  ["request", ["intent", "proId", "scope", "area", "appointment", "timing", "contact"]],
+  ["request", ["intent", "proId", "scope", "area", "appointment", "timing", "contact", "tier",
+    "expectedPrice", "expectedUnit", "expectedIncludes", "expectedIncludesHi", "customerName", "address", "landmark", "notes"]],
   ["transition", ["job", "role", "change"]],
   ["message", ["job", "role", "message"]],
+  ["estimate", ["job", "role", "minutes"]],
 ]);
 const errorCodes = {
   401: "AUTHENTICATION_REQUIRED", 403: "FORBIDDEN", 404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED",
@@ -367,13 +416,14 @@ const errorCodes = {
 
 function nativeMutation(action, market, state, input) {
   const fields = operationFields.get(action);
-  if (!fields) return mutate(action, market, state, input);
+  if (!fields) return mutate(action, market, state, input, true);
   const { operationId } = input;
   if (typeof operationId !== "string" || !/^[a-zA-Z0-9-]{8,64}$/.test(operationId)) {
     throw failure(400, "Provide a valid operationId for this booking action.", "INVALID_OPERATION_ID");
   }
   const values = fields.map((field) => input[field]);
-  if (values.some((value) => value !== undefined && typeof value !== "string")) {
+  if (values.some((value, index) => value !== undefined
+    && (["expectedPrice", "minutes"].includes(fields[index]) ? !Number.isInteger(value) : typeof value !== "string"))) {
     throw failure(400, "Check the booking details.");
   }
   const fingerprint = sha256(JSON.stringify([action, values]));
@@ -384,7 +434,7 @@ function nativeMutation(action, market, state, input) {
     }
     return { jobId: previous.job };
   }
-  const result = mutate(action, market, state, input);
+  const result = mutate(action, market, state, input, true, action === "request" ? fingerprint : undefined);
   if (result.error) return { ...result, code: result.code || "BOOKING_CONFLICT" };
   const jobId = result.job.id;
   putOperation.run(state.account.id, operationId, fingerprint, jobId);
@@ -399,6 +449,48 @@ async function handleApi(req, res, url, native) {
   const readAccount = () => token ? sessions.account.get(sha256(token), Date.now()) || null : null;
   const snapshotFor = (account, action = () => ({})) => transact(account, action, url.searchParams, native);
 
+  if (native && action === "config" && req.method === "GET") return send(res, 200, { phoneMode });
+  if (native && action === "locations" && req.method === "GET") {
+    const account = readAccount();
+    if (!account) throw failure(401, "Sign in to continue.");
+    const query = url.searchParams.get("q")?.trim();
+    if (!query || query.length < 2 || query.length > 100) throw failure(400, "Type at least two letters of your location.", "INVALID_LOCATION");
+    const areas = transact(account, (market, read) => market.pros(read()).filter((person) => person.published && person.id !== account.id)
+      .flatMap((person) => person.areas));
+    return send(res, 200, await searchPlaces(query, areas));
+  }
+  if (native && action === "coverage" && req.method === "GET") {
+    const account = readAccount();
+    if (!account) throw failure(401, "Sign in to continue.");
+    const location = url.searchParams.get("location");
+    if (!location || location.trim().length < 2 || location.length > 120) {
+      throw failure(400, "Enter your area and city.", "INVALID_LOCATION");
+    }
+    const result = transact(account, (market, read) => ({
+      ids: market.pros(read()).filter((person) => person.id !== account.id && person.published
+        && market.serviceArea(location, person.areas)).map((person) => person.id),
+    }));
+    return send(res, 200, result);
+  }
+  if (native && action === "slots" && req.method === "GET") {
+    const account = readAccount();
+    if (!account) throw failure(401, "Sign in to continue.");
+    const proId = url.searchParams.get("proId");
+    const area = url.searchParams.get("area");
+    const slots = url.searchParams.getAll("slot");
+    const timing = url.searchParams.get("timing") || "";
+    if (proId === account.id || slots.length > 24 || !["", "now"].includes(timing)
+      || slots.some((slot) => !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(slot))) {
+      throw failure(400, "Check the booking details.");
+    }
+    const result = transact(account, (market, read) => {
+      const state = read();
+      const person = market.pro(proId, state);
+      return { slots: slots.filter((slot) => market.available(person, area, slot, state)),
+        immediate: timing === "now" && market.available(person, area, "", state, "now") };
+    });
+    return send(res, 200, result);
+  }
   if (req.method === "GET" && action === "state") {
     const account = readAccount();
     if (native && !account) throw failure(401, "Sign in to continue.");
@@ -441,6 +533,21 @@ const server = http.createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     if (url.pathname.startsWith("/api/")) {
       return await handleApi(req, res, url, native);
+    }
+    if (appPreview && req.method === "GET") {
+      const pathname = decodeURIComponent(url.pathname);
+      const entry = pathname === "/" || /^\/(?:sign-in|worker(?:-profile)?|account|services\/[a-z0-9-]+|bookings(?:\/[a-z0-9-]+)?|request\/[a-z0-9-]+)\/?$/.test(pathname);
+      const asset = path.resolve(appPreview, "." + pathname);
+      const type = entry ? mime[".html"] : appMime[path.extname(asset)];
+      if (!type || (!entry && !asset.startsWith(appPreview + path.sep))) throw failure(404, "Page unavailable.");
+      let body;
+      try { body = await fs.promises.readFile(entry ? path.join(appPreview, "index.html") : asset); }
+      catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        throw failure(404, "App preview file unavailable. Export the web app first.");
+      }
+      res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });
+      return res.end(body);
     }
     const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
     if (req.method !== "GET" || (!staticFiles.has(file) && !/^assets\/(?:hero|service-[1-4]|pro-[1-8])\.jpg$/.test(file))) {

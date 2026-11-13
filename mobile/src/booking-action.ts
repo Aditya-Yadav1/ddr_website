@@ -1,6 +1,6 @@
 import { randomUUID } from "expo-crypto";
 import { useRef, useState } from "react";
-import { errorMessage } from "./api";
+import { ApiError, type BookingCommand, type Payload } from "./api";
 import { useSession } from "./session";
 
 export function useBookingAction() {
@@ -8,22 +8,28 @@ export function useBookingAction() {
   const operation = useRef<{ signature: string; id: string } | null>(null);
   const sending = useRef(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function send(action: "request" | "transition", payload: Record<string, string>) {
+  const [uncertain, setUncertain] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  async function send(action: BookingCommand, payload: Payload) {
     if (sending.current) return;
+    const signature = JSON.stringify([action, payload]);
+    if (uncertain && operation.current?.signature !== signature) return;
     sending.current = true;
     setBusy(true);
-    setError("");
-    const signature = JSON.stringify([action, payload]);
+    setError(null);
     if (operation.current?.signature !== signature) operation.current = { signature, id: randomUUID() };
     try {
-      return await changeBooking(action, { ...payload, operationId: operation.current.id });
+      const jobId = await changeBooking(action, { ...payload, operationId: operation.current.id });
+      operation.current = null;
+      setUncertain(false);
+      return jobId;
     } catch (failure) {
-      setError(errorMessage(failure));
+      setUncertain(!(failure instanceof ApiError) || failure.status >= 500);
+      setError(failure);
     } finally {
       sending.current = false;
       setBusy(false);
     }
   }
-  return { send, busy, error };
+  return { send, busy, error, uncertain };
 }

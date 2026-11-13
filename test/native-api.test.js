@@ -221,3 +221,166 @@ test("pending bookings expire and record an update without client activity or SM
   assert.equal(late.body.code, "REQUEST_EXPIRED");
   assert.ok(late.body.revision > result.body.revision);
 });
+
+test("Plus requests lock the accepted offer and keep visit details private until acceptance", async (t) => {
+  const { api, register, registerWorker, stop, start } = await setup(t);
+  const worker = await registerWorker();
+  const customer = await register("offer-customer");
+  const outsider = await register("unrelated-customer");
+  const includes = "Inspect adjacent fittings and write an itemised repair estimate.";
+  const includesHi = "पास की फिटिंग की जाँच और मरम्मत का लिखित अनुमान।";
+  const base = {
+    name: "Test worker", bio: "Local test profile", service: "plumbing", unit: "hourly",
+    years: 2, price: 500, areas: ["Saket"],
+  };
+  async function save(plus) {
+    return api("profile", { token: worker.token, body: { ...base, plus } });
+  }
+  assert.equal((await save({ price: 500, includes })).body.code, "INVALID_PLUS");
+  assert.equal((await save({ price: 750, includes: " " })).body.code, "INVALID_PLUS");
+  assert.equal((await save({ price: 750, includes, includesHi })).status, 200);
+  const browserLogin = await api("login", { browser: true, body: { handle: "test-worker", password } });
+  const browserCookie = browserLogin.headers["set-cookie"][0].split(";")[0];
+  const browserSave = await api("profile", { browser: true, headers: { Cookie: browserCookie }, body: { ...base, bio: "Updated from website" } });
+  assert.equal(browserSave.status, 200);
+  assert.equal(browserSave.body.state.profile.plus.includes, includes);
+
+  const tomorrow = new Date(Date.now() + 86_400_000 + 19_800_000).toISOString().slice(0, 10);
+  const appointment = tomorrow + "T11:00";
+  const slots = (token) => api("slots?" + new URLSearchParams({ proId: worker.id, area: "Saket", slot: appointment }), { token });
+  assert.deepEqual((await slots(customer.token)).body.slots, [appointment]);
+  assert.equal((await api("slots?proId=" + worker.id)).status, 401);
+  const offer = {
+    ...booking(worker.id, appointment), tier: "plus", expectedPrice: 750, expectedUnit: "hourly",
+    expectedIncludes: includes, expectedIncludesHi: includesHi,
+    customerName: "Test customer", address: "Flat 2, Test Street", landmark: "Test school", notes: "Ring the bell",
+  };
+  assert.equal((await api("request", { token: customer.token, body: { ...offer, expectedPrice: 740 } })).body.code, "OFFER_CHANGED");
+  assert.equal((await api("request", { token: customer.token, body: { ...offer, expectedIncludesHi: "पुराना विवरण" } })).body.code, "OFFER_CHANGED");
+  const request = await api("request", { token: customer.token, body: offer });
+  assert.equal(request.status, 200, request.body.error);
+  const jobId = request.body.jobId;
+  function job(response) { return response.body.state.requests.find((item) => item.id === jobId); }
+  const workerUpdates = (await api("state", { token: worker.token })).body.state.bookingUpdates;
+  assert.deepEqual(workerUpdates.map(({ job, role, label }) => ({ job, role, label })), [
+    { job: jobId, role: "pro", label: "New booking request" },
+  ]);
+  assert.deepEqual(request.body.state.bookingUpdates, []);
+  assert.deepEqual((await api("state", { token: outsider.token })).body.state.bookingUpdates, []);
+  assert.equal(job(request).details.address, offer.address);
+  assert.equal(job(request).tier, "plus");
+  assert.equal(job(request).minimumQuantity, 2);
+  assert.equal(job(request).requestFingerprint, undefined);
+  const estimate = await api("estimate", { token: worker.token, body: {
+    operationId: randomUUID(), job: jobId, role: "pro", minutes: 90,
+  } });
+  assert.equal(estimate.status, 200);
+  assert.equal(job(estimate).details, undefined);
+  assert.equal(job(estimate).minimumQuantity, 2);
+  assert.equal(job(await api("state", { token: outsider.token })), undefined);
+  assert.equal(job(await api("state", { browser: true, headers: { Cookie: browserCookie } })).details, undefined);
+  const browserMessage = await api("message", { browser: true, headers: { Cookie: browserCookie },
+    body: { job: jobId, role: "pro", message: "Pending booking message" } });
+  assert.equal(browserMessage.status, 200);
+  assert.equal(browserMessage.body.job.details, undefined);
+  assert.equal(browserMessage.body.job.requestFingerprint, undefined);
+  const altered = await api("request", { token: customer.token, body: { ...offer, operationId: randomUUID(), address: "Different Test Street" } });
+  assert.equal(altered.body.code, "INTENT_REUSED");
+
+  assert.equal((await save({ price: 950, includes: "Updated extra work" })).status, 200);
+  const staleOffer = await api("request", { token: customer.token, body: {
+    ...offer, intent: randomUUID(), operationId: randomUUID(),
+  } });
+  assert.equal(staleOffer.body.code, "OFFER_CHANGED");
+  assert.equal(staleOffer.body.state.requests.length, 1);
+  const replay = await api("request", { token: customer.token, body: { ...offer, operationId: randomUUID() } });
+  assert.equal(replay.body.jobId, jobId);
+  assert.equal(job(replay).price, 750);
+  assert.equal(job(replay).includes, includes);
+
+  for (const [change, expected] of [["accept", "accepted"], ["depart", "en_route"], ["arrive", "arrived"],
+    ["start", "in_progress"], ["complete", "completed"]]) {
+    const transition = await api("transition", { token: worker.token, body: {
+      operationId: randomUUID(), job: jobId, role: "pro", change,
+    } });
+    assert.equal(transition.status, 200, transition.body.error);
+    assert.equal(job(transition).status, expected);
+    assert.equal(job(transition).details.address, offer.address);
+    assert.equal(job(transition).includes, includes);
+  }
+  const recycled = await api("request", { token: customer.token, body: { ...offer, operationId: randomUUID(), proId: outsider.id } });
+  assert.equal(recycled.body.code, "INTENT_REUSED");
+  await stop();
+  await start();
+  const restored = await api("state", { token: customer.token });
+  const stored = job(restored);
+  assert.equal(stored.status, "completed");
+  assert.equal(stored.price, 750);
+  assert.equal(stored.includesHi, includesHi);
+  assert.equal(stored.details.landmark, offer.landmark);
+  assert.deepEqual(restored.body.state.bookingUpdates.map(({ job, role, label }) => ({ job, role, label })), [
+    { job: jobId, role: "customer", label: "Job completed" },
+    { job: jobId, role: "customer", label: "Booking accepted" },
+  ]);
+});
+
+test("workers can manage availability without affecting another account or exposing blocked time", async (t) => {
+  const { api, register, registerWorker } = await setup(t);
+  const worker = await registerWorker();
+  const customer = await register("availability-customer");
+  const date = new Date(Date.now() + 86_400_000 + 19_800_000).toISOString().slice(0, 10);
+  const start = date + "T11:00";
+  const end = date + "T12:00";
+  const query = "slots?" + new URLSearchParams({ proId: worker.id, area: "Saket", timing: "now", slot: start });
+  const schedule = async () => (await api(query, { token: customer.token })).body;
+  assert.deepEqual(await schedule(), { slots: [start], immediate: false });
+  const hours = { days: [0, 1, 2, 3, 4, 5, 6], start: "10:00", end: "17:00", buffer: 15 };
+  assert.equal((await api("hours", { token: customer.token, body: hours })).status, 400);
+  assert.deepEqual((await api("hours", { token: worker.token, body: hours })).body.state.profile.hours, hours);
+  const block = await api("block", { token: worker.token, body: { start, end } });
+  assert.equal(block.status, 200, block.body.error);
+  assert.equal((await api("immediate", { token: worker.token, body: { enabled: true } })).status, 200);
+  assert.deepEqual(await schedule(), { slots: [], immediate: true });
+  const publicProfile = (await api("state", { token: customer.token })).body.state.profiles.find((person) => person.id === worker.id);
+  assert.equal(publicProfile.blocks, undefined);
+  assert.equal((await api("published", { token: worker.token, body: { enabled: false } })).status, 200);
+  assert.deepEqual(await schedule(), { slots: [], immediate: false });
+  assert.equal((await api("published", { token: worker.token, body: { enabled: true } })).status, 200);
+  assert.equal((await api("remove-block", { token: worker.token, body: { id: block.body.state.profile.blocks[0].id } })).status, 200);
+  assert.deepEqual(await schedule(), { slots: [start], immediate: true });
+});
+
+test("typed locations use worker coverage for discovery, slots and booking authorization", async (t) => {
+  const { api, register, registerWorker } = await setup(t);
+  const worker = await registerWorker();
+  const customer = await register("location-customer");
+  const coverage = (location, token = customer.token) => api("coverage?" + new URLSearchParams({ location }), { token });
+  assert.equal((await coverage("Saket", "")).status, 401);
+  assert.equal((await api("locations?q=dw")).status, 401);
+  assert.equal((await api("locations?q=d", { token: customer.token })).body.code, "INVALID_LOCATION");
+  assert.equal((await coverage("a")).body.code, "INVALID_LOCATION");
+  assert.deepEqual((await coverage("  sAkEt, New Delhi  ")).body.ids, [worker.id]);
+  assert.deepEqual((await coverage("साकेत, नई दिल्ली")).body.ids, [worker.id]);
+  assert.deepEqual((await coverage("Saket, Mumbai")).body.ids, []);
+  assert.deepEqual((await coverage("Mayur Vihar, Delhi")).body.ids, []);
+  assert.deepEqual((await coverage("Saket", worker.token)).body.ids, []);
+  const profile = {
+    name: "Test worker", bio: "Local test profile", service: "plumbing", unit: "visit",
+    years: 2, price: 500, areas: ["Mayur Vihar, Delhi", "Saket", "Dwarka"],
+  };
+  assert.equal((await api("profile", { token: worker.token, body: profile })).status, 200);
+  assert.deepEqual((await coverage("Mayur Vihar, New Delhi")).body.ids, [worker.id]);
+  assert.deepEqual((await coverage("Dwarka Sector 10, Delhi")).body.ids, [worker.id]);
+  const appointment = new Date(Date.now() + 86_400_000 + 19_800_000).toISOString().slice(0, 10) + "T11:00";
+  const slots = (area) => api("slots?" + new URLSearchParams({ proId: worker.id, area, slot: appointment }), { token: customer.token });
+  assert.deepEqual((await slots("Mayur Vihar, Delhi")).body.slots, [appointment]);
+  assert.deepEqual((await slots("Mumbai")).body.slots, []);
+  const outside = await api("request", { token: customer.token, body: { ...booking(worker.id, appointment), area: "Mumbai" } });
+  assert.equal(outside.body.code, "LOCATION_UNAVAILABLE");
+  assert.equal(outside.body.state.requests.length, 0);
+  const inside = await api("request", { token: customer.token, body: { ...booking(worker.id, appointment), area: "Mayur Vihar, New Delhi" } });
+  assert.equal(inside.status, 200, inside.body.error);
+  assert.equal(inside.body.state.requests[0].area, "Mayur Vihar, New Delhi");
+  await api("published", { token: worker.token, body: { enabled: false } });
+  assert.deepEqual((await coverage("Mayur Vihar, Delhi")).body.ids, []);
+});

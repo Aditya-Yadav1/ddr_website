@@ -5,6 +5,7 @@
     "scheme": "handyhive",
     "version": "0.1.0",
     "orientation": "portrait",
+    "web": { "output": "single" },
     "android": { "package": "com.handyhive.app" },
     "ios": { "bundleIdentifier": "com.handyhive.app" },
     "plugins": ["expo-router", "expo-secure-store", "./plugins/with-android-cmake"]
