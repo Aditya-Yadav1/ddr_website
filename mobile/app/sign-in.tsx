@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { api, offlineDemo, type PhoneChallenge, type PhoneMode } from "../src/api";
 import { useCopy } from "../src/language";
@@ -6,9 +6,8 @@ import { useSession } from "../src/session";
 import { Body, Button, Feedback, Field, Heading, Page, Panel, Row } from "../src/ui";
 
 export default function SignIn() {
-  const router = useRouter();
   const { next, support, job, topic, role } = useLocalSearchParams<{ role?: string; next?: string; support?: string; job?: string; topic?: string }>();
-  const { auth, startPhone, error: sessionError } = useSession();
+  const { token, auth, startPhone, role: sessionRole, error: sessionError } = useSession();
   const { t } = useCopy();
   const [phoneMode, setPhoneMode] = useState<PhoneMode>();
   const [mode, setMode] = useState<"phone" | "login" | "register">("phone");
@@ -42,12 +41,6 @@ export default function SignIn() {
         const digits = phone.replace(/\D/g, "");
         setChallenge(await startPhone(digits.length === 12 ? "+" + digits : "+91" + digits));
       }
-      if (offlineDemo || mode !== "phone" || challenge) {
-        if (support === "1") router.replace({ pathname: "/support", params: { job, topic } });
-        else if (next) {
-          try { const choice = JSON.parse(next); if (typeof choice.id === "string") router.replace({ pathname: "/request/[id]", params: choice }); } catch {}
-        } else router.replace(role === "worker" ? "/worker" : "/customer");
-      }
     } catch (failure) {
       setError(failure);
     } finally {
@@ -59,6 +52,16 @@ export default function SignIn() {
     setError(null);
     setPassword("");
     setMode(next);
+  }
+  if (token) {
+    if (support === "1") return <Redirect href={{ pathname: "/support", params: { job, topic } }} />;
+    if (next) {
+      try {
+        const choice = JSON.parse(next);
+        if (typeof choice?.id === "string") return <Redirect href={{ pathname: "/request/[id]", params: choice }} />;
+      } catch { /* Use the workspace when the booking link is incomplete. */ }
+    }
+    return <Redirect href={(role ?? sessionRole) === "worker" ? "/worker" : "/customer"} />;
   }
   const title = role === "worker" ? t("Worker sign-in", "काम करने वाले का साइन इन") : t("Customer sign-in", "ग्राहक साइन इन");
   if (offlineDemo) return <Page><Heading>{title}</Heading>

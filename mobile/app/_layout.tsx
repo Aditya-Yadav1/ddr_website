@@ -46,9 +46,7 @@ function Navigation() {
       <Stack.Screen name="bookings/[id]/payment" options={{ title: t("Payment", "भुगतान") }} />
       <Stack.Screen name="bookings/[id]/review" options={{ title: t("Review", "रेटिंग") }} />
     </Stack.Protected>
-    <Stack.Protected guard={!token}>
-      <Stack.Screen name="sign-in" options={{ title: "HandyHive", headerTitle: () => <Brand />, headerRight: () => null }} />
-    </Stack.Protected>
+    <Stack.Screen name="sign-in" options={{ title: "HandyHive", headerTitle: () => <Brand />, headerRight: () => null }} />
   </Stack></View>;
 }
 
