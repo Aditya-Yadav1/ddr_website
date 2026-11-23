@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Image, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { isPinCode } from "../shared/pin-codes";
 import { localPlaces } from "../shared/local-places";
@@ -100,6 +100,7 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
   const direct = isPinCode(term);
   const searchable = term.length >= 2 && !direct;
   const collapsed = compact && !editing && isPinCode(pinCode);
+  const canLocate = !offlineDemo && (Platform.OS !== "web" || globalThis.isSecureContext);
   useEffect(() => () => { attempt.current++; }, []);
   useEffect(() => {
     if (!searchable || collapsed || offlineDemo) return;
@@ -167,7 +168,7 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
         ? t("Searching places…", "जगह खोज रहे हैं…")
         : result?.failed ? t("Location search is unavailable. Try a known locality or enter your PIN.", "अभी जगह खोज नहीं पाए। इलाका या पिन कोड डालें।")
         : t("No matching postal area. Try a nearby landmark, sector or PIN.", "डाक क्षेत्र नहीं मिला। पास का लैंडमार्क, सेक्टर या पिन आज़माएँ।")}</Body>}
-      {!offlineDemo && <Button secondary compact tone="info" disabled={gps === "busy"}
+      {canLocate && <Button secondary compact tone="info" disabled={gps === "busy"}
         label={gps === "busy" ? t("Finding your location…", "आपकी जगह खोज रहे हैं…") : t("Use my current location", "मेरी मौजूदा जगह इस्तेमाल करें")}
         onPress={() => void locate()} />}
       {detected && <Button label={t("Use this location", "यह जगह इस्तेमाल करें") + " · " + [detected.value, detected.pinCode].filter(Boolean).join(" · ")}

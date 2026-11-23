@@ -1,6 +1,6 @@
-import { randomUUID } from "expo-crypto";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, type BookingCommand, type Payload } from "./api";
+import { operationId } from "./operation-id";
 import { useSession } from "./session";
 import { readStored, removeStored, writeStored } from "./storage";
 
@@ -39,8 +39,8 @@ export function useBookingAction(persistFor?: string) {
     sending.current = true;
     setBusy(true);
     setError(null);
-    if (operation.current?.signature !== signature) operation.current = { action, payload, signature, id: randomUUID() };
     try {
+      if (operation.current?.signature !== signature) operation.current = { action, payload, signature, id: operationId() };
       const intent = operation.current;
       if (key) await writeStored(key, JSON.stringify(intent));
       const jobId = await changeBooking(action, { ...payload, operationId: intent.id });

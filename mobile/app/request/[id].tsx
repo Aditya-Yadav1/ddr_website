@@ -1,5 +1,4 @@
 import { SavedAddresses } from "../../src/saved-addresses";
-import { randomUUID } from "expo-crypto";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import type { Brief, Payload, Tier, Unit } from "../../src/api";
@@ -10,6 +9,7 @@ import { useCopy } from "../../src/language";
 import { PinGate, VisitPin, useLocation } from "../../src/location";
 import { useDiscovery } from "../../src/discovery";
 import { MaterialOptions, useMaterialLabels } from "../../src/job-materials";
+import { operationId } from "../../src/operation-id";
 import { useSession } from "../../src/session";
 import { PlusBenefits, ServiceOptions } from "../../src/service-options";
 import { Body, Button, Feedback, Field, Guide, Heading, Page, Panel, PriceNote, Row, Section, TierPrice } from "../../src/ui";
@@ -130,7 +130,7 @@ export default function RequestAppointment() {
   function openReview() {
     if (!valid || !profile) return;
     setReview({
-      safetyVersion: 1, intent: randomUUID(), proId: profile.id, scope, area: area.trim(), pinCode, appointment, timing: "",
+      safetyVersion: 1, intent: operationId(), proId: profile.id, scope, area: area.trim(), pinCode, appointment, timing: "",
       contact: "In-app message", tier, expectedPrice: plus?.price ?? profile.price, expectedUnit: profile.unit,
       expectedIncludes: plus?.includes || "", expectedIncludesHi: plus?.includesHi || "",
       customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim(),

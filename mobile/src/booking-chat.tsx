@@ -1,8 +1,8 @@
-import { randomUUID } from "expo-crypto";
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { ApiError, type Booking, type Role } from "./api";
 import { useCopy } from "./language";
+import { operationId } from "./operation-id";
 import { useSession } from "./session";
 import { readStored, removeStored, writeStored } from "./storage";
 import { activeStatuses, Body, Button, colors, Feedback, Field, Heading, Panel, Row } from "./ui";
@@ -58,17 +58,16 @@ export function BookingChat({ booking, role }: { booking: Booking; role: Role })
     sending.current = true;
     setBusy(true);
     setError(null);
-    const operationId = draft.operationId ?? randomUUID();
-    const pending = { text: draft.text.trim(), operationId };
     try {
+      const pending = { text: draft.text.trim(), operationId: draft.operationId ?? operationId() };
       await persist(pending);
       setDraft(pending);
-      await changeBooking("message", { job: booking.id, role, message: pending.text, operationId });
+      await changeBooking("message", { job: booking.id, role, message: pending.text, operationId: pending.operationId });
       setDraft(blank);
       await persist(blank).catch(() => {});
     } catch (failure) {
       if (failure instanceof ApiError && failure.status < 500) {
-        const unsent = { text: pending.text };
+        const unsent = { text: draft.text.trim() };
         setDraft(unsent);
         await persist(unsent).catch(() => {});
       }

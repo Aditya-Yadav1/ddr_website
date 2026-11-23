@@ -1,8 +1,8 @@
-import { randomUUID } from "expo-crypto";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import { offlineDemo, type SupportTicket } from "../src/api";
 import { useCopy } from "../src/language";
+import { operationId } from "../src/operation-id";
 import { useSession } from "../src/session";
 import { Body, Button, Feedback, Field, Guide, Heading, Page, Panel, Row, Section, Tag } from "../src/ui";
 
@@ -36,7 +36,7 @@ export default function CustomerSupport() {
     const fields = { category, job: booking?.id, message: message.trim() };
     const signature = JSON.stringify(fields);
     try {
-      if (submission.current?.signature !== signature) submission.current = { id: randomUUID(), signature };
+      if (submission.current?.signature !== signature) submission.current = { id: operationId(), signature };
       await changeProfile("support-create", { id: submission.current.id, ...fields });
       submission.current = null;
       setMessage("");

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "node scripts/start-web.js --watch",
     "start": "node scripts/start-web.js",
+    "start:phone": "node scripts/start-web.js --phone",
     "build:web": "node scripts/start-web.js --build",
+    "build:pages": "node scripts/start-web.js --pages",
     "typecheck": "npm --prefix mobile run typecheck",
     "test": "node --test"
   }

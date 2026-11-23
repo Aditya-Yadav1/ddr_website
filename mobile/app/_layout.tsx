@@ -18,7 +18,8 @@ function Navigation() {
   }
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
     {offlineDemo && <SafeAreaView edges={["top", "left", "right"]} style={{ backgroundColor: colors.warm }}><View style={{ padding: 10 }}>
-      <Body small strong>{t("Offline demo · fictional data only", "ऑफ़लाइन डेमो · केवल काल्पनिक डेटा")}</Body>
+      <Body small strong>{Platform.OS === "web" ? t("Browser demo · fictional data only", "ब्राउज़र डेमो · केवल काल्पनिक डेटा")
+        : t("Offline demo · fictional data only", "ऑफ़लाइन डेमो · केवल काल्पनिक डेटा")}</Body>
     </View></SafeAreaView>}
     {pilotBuild && <View style={{ padding: 10, backgroundColor: colors.warm }}><Body small>{usbPilotBuild
       ? t("USB pilot · keep the phone connected by cable · test accounts only", "USB पायलट · फ़ोन को केबल से जोड़े रखें · केवल परीक्षण खाते")

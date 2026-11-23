@@ -2,6 +2,22 @@
 
 The website and Android/iOS app use the same Expo and React Native screens in `mobile/`. Make and review changes in the browser first; those source changes are included the next time you build the native app.
 
+## Open HandyHive on your phone
+
+### GitHub Pages browser demo
+
+The [Pages deployment workflow](.github/workflows/pages.yml) publishes the browser demo. In the GitHub repository, set **Settings → Pages → Source** to **GitHub Actions**, then run **Publish HandyHive browser demo** from **Actions**. Later pushes to `main` that change the app will publish automatically. Open the deployment URL from the workflow run on your phone.
+
+Choose **Customer** on Explore to open the sample booking. Switch to **Plumber** to accept the visit from Work, then switch back to the customer to confirm arrival. Use fictional details. Bookings, messages and simulated payment records stay in the browser where you create them. Hosting live accounts and shared bookings requires the project’s [Node API and persistent storage](SECURITY_AND_LAUNCH.md#permanent-hosting).
+
+### Connected preview on the same Wi-Fi
+
+1. Connect your computer and phone to the same Wi-Fi. On Windows, double-click `START_HANDYHIVE_WEB.cmd`. You can also run `npm run start:phone` or `node scripts/start-web.js --phone` from the project folder. The first setup requires Node.js 24 and `npm --prefix mobile ci`.
+2. Wait for **HandyHive connected preview**. Open the printed `http://` address on your phone and keep the server running. You can use your browser’s **Add to Home Screen** option to open HandyHive again from a shortcut.
+3. Choose **Try demo location** to browse sample workers. Create a preview account with fictional details to try booking, chat and test checkout. The phone preview saves its own data in `handyhive-phone-web.sqlite`.
+
+If there are multiple network adapters, set `HANDYHIVE_HOST` to the computer’s IPv4 address on the phone’s network and run the launcher again. If the phone can’t load the page, check that the address is current and try a private Wi-Fi network or a hotspot that allows connected devices to reach each other. Use locality search or enter a PIN code for this HTTP preview. A permanent HTTPS setup is described in [SECURITY_AND_LAUNCH.md](SECURITY_AND_LAUNCH.md#permanent-hosting).
+
 ## Develop in the browser
 
 Use Node.js 24. From this project folder:
