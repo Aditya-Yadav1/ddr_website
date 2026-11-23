@@ -1,4 +1,7 @@
 import { useRouter } from "expo-router";
+import { tasks } from "../src/catalog";
+import { isPinCode } from "../shared/pin-codes";
+import { normalizeWorkPhone } from "../shared/worker-profile";
 import { useRef, useState } from "react";
 import type { Payload, ProfileCommand, Unit } from "../src/api";
 import { useCopy } from "../src/language";
@@ -17,12 +20,17 @@ export default function WorkerProfile() {
   const [bio, setBio] = useState(profile?.bio ?? "");
   const [bioHi, setBioHi] = useState(profile?.bioHi ?? "");
   const [service, setService] = useState(profile?.service ?? "");
+  const [skills, setSkills] = useState(profile?.specializations ?? []);
   const [areasText, setAreasText] = useState(profile?.areas.join("\n") ?? "");
   const areas = areasText.split(/[\n;]/).map((area) => area.trim()).filter(Boolean);
+  const [pinText, setPinText] = useState(profile?.pinCodes?.join(", ") ?? "");
+  const pinCodes = [...new Set(pinText.split(/[\s,]+/).filter(Boolean))];
+  const validPins = pinCodes.length > 0 && pinCodes.length <= 20 && pinCodes.every(isPinCode);
   const [years, setYears] = useState(profile ? String(profile.years) : "");
   const [price, setPrice] = useState(profile ? String(profile.price) : "");
   const [unit, setUnit] = useState<Unit>(profile?.unit ?? "visit");
   const [languages, setLanguages] = useState(profile?.languages?.join(", ") ?? "");
+  const [workPhone, setWorkPhone] = useState(profile?.workPhone ?? "");
   const [plus, setPlus] = useState(Boolean(profile?.plus));
   const [plusPrice, setPlusPrice] = useState(profile?.plus ? String(profile.plus.price) : "");
   const [includes, setIncludes] = useState(profile?.plus?.includes ?? "");
@@ -59,13 +67,15 @@ export default function WorkerProfile() {
   }
   async function saveProfile() {
     const stored = await submit("profile", {
-      name, bio, bioHi, service, areas, years: Number(years), price: Number(price), unit, credential: profile?.credential || "",
+      name, bio, bioHi, service, areas, pinCodes, years: Number(years), price: Number(price), unit, credential: profile?.credential || "", specializations: skills,
       languages: languages.split(/[,،]/).map((value) => value.trim()).filter(Boolean),
+      workPhone,
       plus: plus ? { price: Number(plusPrice), includes, includesHi } : null,
     });
     if (stored && !profile) router.replace("/worker");
   }
-  const profileValid = Boolean(name.trim() && bio.trim() && service && areas.length && years !== "" && Number(years) <= 70
+  const profileValid = Boolean(name.trim() && bio.trim() && service && validPins && normalizeWorkPhone(workPhone) !== null
+    && areas.length <= 20 && areas.every((area) => area.length >= 2 && /[\p{L}]/u.test(area)) && years !== "" && Number(years) <= 70
     && Number(price) >= 1 && Number(price) <= 100000 && (!plus || (Number(plusPrice) > Number(price) && Number(plusPrice) <= 100000 && includes.trim())));
   const clocks = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
   const weekday = [
@@ -93,9 +103,26 @@ export default function WorkerProfile() {
       <Field label={t("Name customers will see", "ग्राहकों को दिखने वाला नाम")} value={name} onChangeText={setName} maxLength={60} />
       <Body strong>{t("Service", "सेवा")}</Body>
       <Row>{catalog.services.map((item) => <Button key={item.id} secondary compact selected={service === item.id}
-        label={copy.service(item.id, item.name)} onPress={() => setService(item.id)} />)}</Row>
-      <Field label={t("Areas you serve", "आप किन इलाकों में काम करते हैं?")} value={areasText} onChangeText={setAreasText}
-        hint={t("Enter one locality per line, including the city. Add only places you can visit.", "हर लाइन में एक इलाका और शहर लिखें। केवल वही जगह जोड़ें जहाँ आप जा सकते हैं।")}
+        label={copy.service(item.id, item.name)} onPress={() => { if (service !== item.id) { setService(item.id); setSkills([]); } }} />)}</Row>
+      {!!service && <>
+        <Body strong>{t("Tasks you do", "आप कौन-से काम करते हैं?")}</Body>
+        <Row>{tasks.filter((task) => task.service === service).map((task) => <Button key={task.id} secondary compact
+          selected={skills.includes(task.id)} label={copy.task(service, task.task)}
+          onPress={() => setSkills((current) => current.includes(task.id) ? current.filter((id) => id !== task.id) : [...current, task.id])} />)}</Row>
+      </>}
+    </Panel>
+    <Panel>
+      <Heading size="small">{t("Service coverage and experience", "सेवा के पिन कोड और अनुभव")}</Heading>
+      <Field label={t("Public work mobile number (optional)", "सार्वजनिक काम का मोबाइल नंबर (वैकल्पिक)")}
+        hint={t("Customers who select your profile can see and call this number.", "आपकी प्रोफ़ाइल चुनने वाले ग्राहक यह नंबर देख सकते हैं और कॉल कर सकते हैं।")}
+        error={normalizeWorkPhone(workPhone) === null ? t("Enter a valid Indian mobile number.", "मान्य भारतीय मोबाइल नंबर डालें।") : undefined}
+        value={workPhone} onChangeText={setWorkPhone} keyboardType="phone-pad" maxLength={24} />
+      <Field label={t("PIN codes you serve", "आप किन पिन कोड में सेवा देते हैं?")} value={pinText} onChangeText={setPinText}
+        hint={t("Enter up to 20 six-digit PIN codes separated by commas or new lines. Only these PIN codes can book you.", "अधिकतम 20 छह अंकों वाले पिन कोड कॉमा या नई लाइन से अलग करके डालें। केवल इन्हीं पिन कोड से आपकी बुकिंग हो सकती है।")}
+        error={pinText && !validPins ? t("Enter 1 to 20 valid six-digit PIN codes.", "1 से 20 मान्य छह अंकों वाले पिन कोड डालें।") : undefined}
+        placeholder="110075, 110078" multiline maxLength={200} />
+      <Field label={t("Locality names (optional)", "इलाकों के नाम (वैकल्पिक)")} value={areasText} onChangeText={setAreasText}
+        hint={t("Add one locality name per line for your profile.", "अपनी प्रोफ़ाइल के लिए हर लाइन में एक इलाके का नाम लिखें।")}
         placeholder={t("Locality, city", "इलाका, शहर")} multiline maxLength={1600} />
       <Field label={t("Years of experience", "अनुभव के साल")} value={years} onChangeText={(value) => setYears(amount(value))} maxLength={2} keyboardType="number-pad" />
       <Field label={t("Describe your work", "अपने काम का विवरण दें")} value={bio} onChangeText={setBio} maxLength={360} multiline />
@@ -103,7 +130,7 @@ export default function WorkerProfile() {
       <Field label={t("Languages you speak (optional)", "आप कौन-सी भाषाएँ बोलते हैं? (वैकल्पिक)")} placeholder={t("Hindi, English", "हिन्दी, अंग्रेज़ी")}
         hint={t("Separate languages with commas.", "भाषाओं को कॉमा से अलग करें।")} value={languages} onChangeText={setLanguages} maxLength={150} />
     </Panel>
-    <Panel tint="green">
+    <Panel tone="info">
       <Heading size="small">{t("Everyday rate", "एवरीडे की दर")}</Heading>
       <Body>{t("Set a starting rate for your regular service.", "अपनी सामान्य सेवा की शुरुआती दर तय करें।")}</Body>
       <Row>
@@ -115,7 +142,7 @@ export default function WorkerProfile() {
         keyboardType="number-pad" maxLength={6} />
       {unit === "hourly" && <Body small>{t("Hourly bookings have a two-hour minimum.", "घंटे वाली बुकिंग कम से कम दो घंटे की होती है।")}</Body>}
     </Panel>
-    <Panel tint="warm">
+    <Panel tone="warning">
       <Heading size="small">{t("Plus option", "प्लस का विकल्प")}</Heading>
       <Body>{t("Offer an optional higher rate with specific extra work included. It uses the same billing unit as Everyday.", "स्पष्ट अतिरिक्त काम के साथ वैकल्पिक ऊँची दर दें। इसका शुल्क एवरीडे की तरह विज़िट, घंटे या पैकेज के हिसाब से होगा।")}</Body>
       <Button secondary compact selected={plus} label={plus ? t("Plus enabled", "प्लस चालू है") : t("Offer Plus", "प्लस दें")} onPress={() => setPlus(!plus)} />

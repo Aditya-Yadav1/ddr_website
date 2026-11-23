@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { AppState, Platform } from "react-native";
-import { api, ApiError, type BookingCommand, type Payload, type PhoneChallenge, type ProfileCommand, type Snapshot } from "./api";
+import { api, ApiError, offlineDemo, type BookingCommand, type Payload, type PhoneChallenge, type ProfileCommand, type Snapshot } from "./api";
 import { readStored, removeStored, writeStored } from "./storage";
 
-const key = "handyhive-session";
+const key = offlineDemo ? "handyhive-offline-session" : "handyhive-session";
+type AuthCommand = "login" | "register" | "phone-verify" | "demo-sign-in";
 type Session = {
   token: string | null;
   snapshot: Snapshot | null;
@@ -11,12 +12,12 @@ type Session = {
   loading: boolean;
   restore: () => Promise<void>;
   refresh: () => Promise<void>;
-  auth: (action: "login" | "register" | "phone-verify", body: Payload) => Promise<void>;
+  auth: (action: AuthCommand, body: Payload) => Promise<void>;
   startPhone: (phone: string) => Promise<PhoneChallenge>;
   logout: () => Promise<void>;
   changeBooking: (action: BookingCommand, body: Payload) => Promise<string>;
   changeProfile: (action: ProfileCommand, body: Payload) => Promise<void>;
-  checkSlots: (area: string, appointments: string[], proId: string, immediate: boolean) => Promise<{ slots: string[]; immediate: boolean }>;
+  checkSlots: (pinCode: string, appointments: string[], proId: string, immediate: boolean, scope?: string, hours?: number) => Promise<{ slots: string[]; immediate: boolean }>;
 };
 const SessionContext = createContext<Session | null>(null);
 
@@ -102,7 +103,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [loading, refresh, token]);
 
-  async function auth(action: "login" | "register" | "phone-verify", body: Payload) {
+  async function auth(action: AuthCommand, body: Payload) {
     const next = await api<Snapshot & { session: { token: string } }>(action, undefined, body);
     const credential = next.session.token;
     await writeStored(key, credential);
@@ -133,10 +134,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const checkSlots = useCallback(async (area: string, appointments: string[], proId: string, immediate: boolean) => {
+  const checkSlots = useCallback(async (pinCode: string, appointments: string[], proId: string, immediate: boolean, scope = "", hours = 2) => {
     const credential = active.current;
     if (!credential) throw new Error("Sign in to continue.");
-    const query = new URLSearchParams({ area, proId, timing: immediate ? "now" : "" });
+    const query = new URLSearchParams({ pinCode, proId, timing: immediate ? "now" : "", scope, hours: String(hours) });
     for (const appointment of appointments) query.append("slot", appointment);
     const results = await api<{ slots: string[]; immediate: boolean }>("slots?" + query, credential);
     if (active.current !== credential) throw new Error("Sign in to continue.");

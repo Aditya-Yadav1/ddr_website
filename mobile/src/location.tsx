@@ -1,73 +1,75 @@
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Keyboard, Linking, Pressable, StyleSheet, Text, View } from "react-native";
-import { api, type PlaceSuggestion } from "./api";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Image, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { isPinCode } from "../shared/pin-codes";
+import { localPlaces } from "../shared/local-places";
+import { devicePlace, type VisitPlace } from "./device-place";
+import { api, offlineDemo } from "./api";
 import { useCopy } from "./language";
 import { useSession } from "./session";
 import { readStored, writeStored } from "./storage";
-import { Body, Button, colors, Feedback, Field, fontFamily } from "./ui";
+import { Body, Button, colors, Feedback, Field, fontFamily, Guide, Heading, heroImage, Panel, Row, Section, Tag } from "./ui";
 
 type Coverage = { key: string; ids: string[]; error?: unknown };
 type ServiceLocation = {
-  location: string;
-  setLocation: (value: string) => void;
+  pinCode: string;
+  locality: string;
+  setPinCode: (value: string, locality?: string) => void;
   ids: string[];
   checked: boolean;
   checking: boolean;
   error: unknown;
   retry: () => void;
-  editing: boolean;
-  beginEdit: () => void;
-  cancelEdit: () => void;
 };
 const LocationContext = createContext<ServiceLocation | null>(null);
-const storageKey = "handyhive-service-location";
+const storageKey = "handyhive-service-pin";
 
 export function LocationProvider({ children }: { children: ReactNode }) {
   const { token, snapshot } = useSession();
-  const [location, updateLocation] = useState("");
+  const [{ pinCode, value: locality }, updatePlace] = useState<VisitPlace>(
+    offlineDemo ? { pinCode: "110017", value: "Saket, Delhi" } : { pinCode: "", value: "" });
   const [result, setResult] = useState<Coverage | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [editing, setEditing] = useState(false);
   const edited = useRef(false);
-  const value = location.trim();
-  const key = JSON.stringify([token, value, snapshot?.revision, attempt, editing]);
+  const key = JSON.stringify([token, pinCode]);
+  const valid = isPinCode(pinCode);
+
   useEffect(() => {
     let active = true;
     void readStored(storageKey, true).then((saved) => {
-      if (active && !edited.current && saved) updateLocation(saved.slice(0, 120));
+      if (!active || edited.current || !saved) return;
+      const place = isPinCode(saved) ? { pinCode: saved, value: "" } : JSON.parse(saved);
+      if (place && isPinCode(place.pinCode) && typeof place.value === "string") updatePlace(place);
     }).catch(() => {});
     return () => { active = false; };
   }, []);
   useEffect(() => {
-    if (!token || editing || value.length < 2) return;
+    if (!valid) return;
     let active = true;
     const timer = setTimeout(() => {
-      void api<{ ids: string[] }>("coverage?" + new URLSearchParams({ location: value }), token).then((coverage) => {
-        if (active) setResult({ key, ids: coverage.ids });
+      void api<{ ids: string[] }>("coverage?" + new URLSearchParams({ pinCode }), token || undefined).then(({ ids }) => {
+        if (active) setResult({ key, ids });
       }).catch((error) => {
         if (active) setResult({ key, ids: [], error });
       });
-    }, 350);
+    }, 250);
     return () => { active = false; clearTimeout(timer); };
-  }, [editing, key, token, value]);
+  }, [key, pinCode, token, valid, snapshot?.revision, attempt]);
   useEffect(() => {
-    if (!edited.current) return;
-    const timer = setTimeout(() => { void writeStored(storageKey, value, true).catch(() => {}); }, 350);
-    return () => clearTimeout(timer);
-  }, [value]);
-  const setLocation = useCallback((next: string) => {
+    if (!edited.current || (!valid && pinCode)) return;
+    void writeStored(storageKey, pinCode ? JSON.stringify({ pinCode, value: locality }) : "", true).catch(() => {});
+  }, [pinCode, locality, valid]);
+  const setPinCode = useCallback((value: string, label?: string) => {
     edited.current = true;
-    setEditing(false);
-    updateLocation(next.trim().slice(0, 120));
+    updatePlace((previous) => ({
+      pinCode: value, value: label ?? (value === previous.pinCode ? previous.value : ""),
+    }));
   }, []);
-  const beginEdit = useCallback(() => setEditing(true), []);
-  const cancelEdit = useCallback(() => setEditing(false), []);
-  const current = !editing && result?.key === key ? result : null;
+  const current = valid && result?.key === key ? result : null;
   return <LocationContext.Provider value={{
-    location, setLocation, ids: current?.ids ?? [], error: current?.error,
-    checked: Boolean(current && !current.error), checking: Boolean(token && !editing && value.length >= 2 && !current),
+    pinCode, locality, setPinCode, ids: current?.ids ?? [], error: current?.error,
+    checked: Boolean(current && !current.error), checking: valid && !current,
     retry: () => setAttempt((previous) => previous + 1),
-    editing, beginEdit, cancelEdit,
   }}>{children}</LocationContext.Provider>;
 }
 
@@ -77,125 +79,144 @@ export function useLocation() {
   return context;
 }
 
-export function LocationField({ compact = false }: { compact?: boolean }) {
-  const { location, setLocation, checked, checking, ids, error, retry, editing, beginEdit, cancelEdit } = useLocation();
-  const { token, snapshot } = useSession();
+export function DemoLocationButton({ pin }: { pin?: string }) {
+  const { pinCode, setPinCode } = useLocation();
   const { t } = useCopy();
-  const [draft, setDraft] = useState(location);
-  const [open, setOpen] = useState(false);
-  const [expanded, setExpanded] = useState(!compact || !location);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const [result, setResult] = useState<{ query: string; suggestions: PlaceSuggestion[]; unavailable: boolean } | null>(null);
-  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listId = useId().replace(/:/g, "");
-  const query = draft.trim();
-  const needle = query.toLowerCase();
-  const local: PlaceSuggestion[] = [...new Set(snapshot?.state.profiles.flatMap((person) => person.areas) ?? [])]
-    .filter((area) => area.toLowerCase().includes(needle)).slice(0, 6)
-    .map((area) => ({ id: "area-" + area, name: area, description: "", value: area, source: "coverage" }));
-  const current = result?.query === query ? result : null;
-  const suggestions = current?.suggestions ?? local;
-  const searching = open && query.length >= 2 && !current;
+  if (!pin || pinCode === pin) return null;
+  const place = localPlaces(pin)[0];
+  return <Button secondary compact label={t("Try demo location", "डेमो जगह आज़माएँ") + " · " + (place?.name || pin)} onPress={() => setPinCode(pin, place?.value)} />;
+}
 
-  useEffect(() => { setDraft(location); }, [location]);
-  useEffect(() => () => { if (blurTimer.current) clearTimeout(blurTimer.current); cancelEdit(); }, [cancelEdit]);
+export function LocationField({ compact = false }: { compact?: boolean }) {
+  const { pinCode, locality, setPinCode, checked, checking, ids, error, retry } = useLocation();
+  const { t } = useCopy();
+  const [editing, setEditing] = useState(false);
+  const [query, setQuery] = useState("");
+  const [remote, setRemote] = useState<{ term: string; places: VisitPlace[]; failed: boolean } | null>(null);
+  const [gps, setGps] = useState<"idle" | "busy" | "denied" | "missing">("idle");
+  const [detected, setDetected] = useState<VisitPlace | null>(null);
+  const attempt = useRef(0);
+  const term = query.trim();
+  const direct = isPinCode(term);
+  const searchable = term.length >= 2 && !direct;
+  const collapsed = compact && !editing && isPinCode(pinCode);
+  useEffect(() => () => { attempt.current++; }, []);
   useEffect(() => {
-    if (!open || !token || query.length < 2) return;
+    if (!searchable || collapsed || offlineDemo) return;
     let active = true;
-    const timer = setTimeout(() => {
-      void api<{ suggestions: PlaceSuggestion[]; unavailable: boolean }>("locations?" + new URLSearchParams({ q: query }), token)
-        .then((places) => { if (active) setResult({ query, ...places }); })
-        .catch(() => { if (active) setResult({ query, suggestions: local, unavailable: true }); });
-    }, 400);
+    const timer = setTimeout(async () => {
+      try {
+        const result = await api<{ suggestions: VisitPlace[]; unavailable: boolean }>(
+          "locations?" + new URLSearchParams({ q: term, postal: "1" }));
+        if (active) setRemote({ term, places: result.suggestions.filter((place) => isPinCode(place.pinCode)), failed: result.unavailable });
+      } catch {
+        if (active) setRemote({ term, places: [], failed: true });
+      }
+    }, 350);
     return () => { active = false; clearTimeout(timer); };
-  }, [open, query, token]);
-
-  function choose(value: string) {
+  }, [term, searchable, collapsed]);
+  const result = remote?.term === term ? remote : null;
+  const local = searchable ? localPlaces(term) : [];
+  const choices = [...local, ...(result?.places ?? [])].filter((place, index, list) =>
+    list.findIndex((other) => other.pinCode === place.pinCode && other.value === place.value) === index).slice(0, 8);
+  function reset(value = "") {
+    attempt.current++;
+    setQuery(value);
+    setRemote(null);
+    setDetected(null);
+    setGps("idle");
+  }
+  function choose(place: VisitPlace) {
+    reset();
+    setPinCode(place.pinCode, place.value);
+    if (pinCode === place.pinCode && error) retry();
+    setEditing(false);
     Keyboard.dismiss();
-    if (blurTimer.current) clearTimeout(blurTimer.current);
-    setDraft(value);
-    setLocation(value);
-    setOpen(false);
-    setExpanded(!compact);
-    setActiveIndex(-1);
   }
-  function keepSelectionOpen() {
-    if (blurTimer.current) clearTimeout(blurTimer.current);
+  async function locate() {
+    reset();
+    const id = attempt.current;
+    setGps("busy");
+    const timeout = setTimeout(() => {
+      if (id === attempt.current) { attempt.current++; setGps("missing"); }
+    }, 30000);
+    try {
+      const place = await devicePlace();
+      if (id !== attempt.current) return;
+      setDetected(place);
+      setGps(place ? "idle" : "missing");
+    } catch (failure) {
+      if (id === attempt.current) setGps(failure instanceof Error && failure.message === "denied" ? "denied" : "missing");
+    } finally { clearTimeout(timeout); }
   }
-  function finishTyping() {
-    setOpen(false);
-    setDraft(location);
-    cancelEdit();
-  }
-  if (compact && !expanded && location && !editing) return <Pressable accessibilityRole="button"
-    accessibilityLabel={t("Change location", "इलाका बदलें") + ", " + location} onPress={() => setExpanded(true)}
-    style={({ pressed }) => [look.selectedLocation, pressed && look.pressed]}>
-    <Text style={look.pin}>⌖</Text><Text style={look.selectedText}>{location}</Text><Text style={look.change}>{t("Change", "बदलें")} ↓</Text>
-  </Pressable>;
   return <View style={look.container}>
-    <Field label={t("Where should we come?", "हम कहाँ आएँ?")}
-      placeholder={t("Try Saket, Dwarka, or your locality…", "साकेत, द्वारका या अपना इलाका लिखें…")}
-      value={draft} onChangeText={(next) => { setDraft(next); beginEdit(); setOpen(true); setActiveIndex(-1); }}
-      onFocus={() => { if (blurTimer.current) clearTimeout(blurTimer.current); setOpen(true); }}
-      onBlur={() => { blurTimer.current = setTimeout(finishTyping, 180); }}
-      onSubmitEditing={() => { if (query.length >= 2) choose((suggestions[activeIndex] ?? suggestions[0])?.value ?? query); }}
-      onKeyPress={(event) => {
-        const key = event.nativeEvent.key;
-        if (key === "Escape") { event.preventDefault(); finishTyping(); }
-        if ((key === "ArrowDown" || key === "ArrowUp") && suggestions.length) {
-          event.preventDefault(); setOpen(true);
-          setActiveIndex((index) => index < 0 ? (key === "ArrowDown" ? 0 : suggestions.length - 1)
-            : (index + (key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length);
-        }
-      }}
-      accessibilityRole="combobox" accessibilityState={{ expanded: open && query.length >= 2 }}
-      maxLength={100} autoCorrect={false} autoComplete="off" returnKeyType="search" style={look.searchInput} />
-    {open && query.length >= 2 && <View nativeID={listId} accessibilityRole="list" style={look.dropdown}>
-      {suggestions.map((place, index) => <Pressable key={place.id} accessibilityRole="button"
-        accessibilityLabel={[place.name, place.description].filter(Boolean).join(", ")}
-        accessibilityState={{ selected: activeIndex === index }}
-        onPressIn={keepSelectionOpen} onFocus={keepSelectionOpen} onPress={() => choose(place.value)} onHoverIn={() => setActiveIndex(index)}
-        style={({ pressed }) => [look.option, (pressed || activeIndex === index) && look.optionActive]}>
-        <Text style={look.optionPin}>⌖</Text>
-        <View style={look.optionText}><Text style={look.optionName}>{place.name}</Text>
-          <Text style={look.optionDescription}>{place.source === "coverage" ? t("Workers serve this area", "इस इलाके में सेवा उपलब्ध है") : place.description}</Text></View>
-        <Text style={look.arrow}>↗</Text>
-      </Pressable>)}
-      {searching && <View style={look.lookup}><ActivityIndicator size="small" color={colors.accent} /><Body small>{t("Looking up places…", "जगहें खोज रहे हैं…")}</Body></View>}
-      {current?.unavailable && <View style={look.lookup}><Body small>{t("Place search is taking a moment. You can still use the full area name below.", "जगह खोजने में समय लग रहा है। नीचे अपने इलाके का पूरा नाम इस्तेमाल कर सकते हैं।")}</Body></View>}
-      <Pressable accessibilityRole="button" accessibilityLabel={t("Use this location, ", "यही इलाका चुनें, ") + query}
-        onPressIn={keepSelectionOpen} onPress={() => choose(query)} style={({ pressed }) => [look.manual, pressed && look.optionActive]}>
-        <Text style={look.manualText}>{t("Use “", "“")}{query}{t("” as my location", "” को मेरा इलाका चुनें")} →</Text>
-      </Pressable>
-      {suggestions.some((place) => place.source === "photon") && <Text accessibilityRole="link"
-        onPress={() => void Linking.openURL("https://www.openstreetmap.org/copyright")} style={look.attribution}>Photon · © OpenStreetMap</Text>}
-    </View>}
-    {!open && checking && <Body small>{t("Let me check who can help here…", "यहाँ कौन मदद कर सकता है, हम जाँच रहे हैं…")}</Body>}
-    {!open && checked && !ids.length && <Body strong notice>{t("We haven’t reached this area yet. Try another location?", "हम अभी इस इलाके तक नहीं पहुँचे हैं। कोई दूसरा इलाका देखें?")}</Body>}
+    {collapsed ? <Pressable accessibilityRole="button"
+      accessibilityLabel={t("Change visit location", "विज़िट की जगह बदलें") + ", " + (locality || pinCode)}
+      onPress={() => setEditing(true)} style={({ pressed }) => [look.selected, pressed && { opacity: 0.75 }]}>
+      <Text style={look.label}>{locality || t("Visit location", "विज़िट की जगह")} · {pinCode}</Text>
+      <Text style={look.change}>{t("Change", "बदलें")}</Text>
+    </Pressable> : <>
+      <Field label={t("Search your location", "अपनी जगह खोजें")} value={query}
+        placeholder={t("Locality, sector or landmark", "इलाका, सेक्टर या लैंडमार्क")} onChangeText={reset}
+        autoFocus={compact && editing} autoCapitalize="words" maxLength={100}
+        onSubmitEditing={() => { if (direct) choose({ value: "", pinCode: term }); }} />
+      {direct && <Button label={t("Find workers", "काम करने वाले खोजें") + " · " + term} onPress={() => choose({ value: "", pinCode: term })} />}
+      {choices.map((place) => <Button secondary tone="info" key={place.value + place.pinCode}
+        label={place.value + " · " + place.pinCode} onPress={() => choose(place)} />)}
+      {searchable && !choices.length && <Body small>{!result && !offlineDemo
+        ? t("Searching places…", "जगह खोज रहे हैं…")
+        : result?.failed ? t("Location search is unavailable. Try a known locality or enter your PIN.", "अभी जगह खोज नहीं पाए। इलाका या पिन कोड डालें।")
+        : t("No matching postal area. Try a nearby landmark, sector or PIN.", "डाक क्षेत्र नहीं मिला। पास का लैंडमार्क, सेक्टर या पिन आज़माएँ।")}</Body>}
+      {!offlineDemo && <Button secondary compact tone="info" disabled={gps === "busy"}
+        label={gps === "busy" ? t("Finding your location…", "आपकी जगह खोज रहे हैं…") : t("Use my current location", "मेरी मौजूदा जगह इस्तेमाल करें")}
+        onPress={() => void locate()} />}
+      {detected && <Button label={t("Use this location", "यह जगह इस्तेमाल करें") + " · " + [detected.value, detected.pinCode].filter(Boolean).join(" · ")}
+        onPress={() => choose(detected)} />}
+      {gps === "denied" && <Guide tone="warning">{t("Location access is off. Search for your locality above.", "जगह की अनुमति बंद है। ऊपर अपना इलाका खोजें।")}</Guide>}
+      {gps === "missing" && <Guide tone="warning">{t("We couldn’t confirm a postal area here. Search for your locality or enter a PIN.", "यहाँ डाक क्षेत्र की पुष्टि नहीं हुई। अपना इलाका खोजें या पिन डालें।")}</Guide>}
+      {compact && editing && <Button secondary compact label={t("Cancel", "रद्द करें")} onPress={() => { reset(); setEditing(false); }} />}
+    </>}
+    {checking && <Body small>{t("Checking available workers…", "उपलब्ध काम करने वाले खोज रहे हैं…")}</Body>}
+    {checked && !ids.length && <Guide tone="warning">{t("No workers serve this location yet", "अभी यहाँ कोई काम करने वाला उपलब्ध नहीं है")} · {[locality, pinCode].filter(Boolean).join(" · ")}</Guide>}
     <Feedback error={error} />
-    {Boolean(error) && <Button compact secondary label={t("Check location again", "इलाके की फिर जाँच करें")} onPress={retry} />}
-    {open && query.length === 1 && <Body small>{t("One more letter, and I’ll look for your area.", "एक अक्षर और लिखें, फिर हम आपका इलाका खोजेंगे।")}</Body>}
+    {Boolean(error) && <Button compact secondary label={t("Check coverage again", "उपलब्धता फिर जाँचें")} onPress={retry} />}
   </View>;
 }
 
+export function PinGate({ demoPin }: { demoPin?: string }) {
+  const { t } = useCopy();
+  return <Panel tone="info">
+    <View style={look.intro}>
+      <View style={look.introCopy}><Section>
+        <Heading>{t("Where is the visit?", "विज़िट कहाँ होगी?")}</Heading>
+        <Body>{t("Choose your neighbourhood to find workers nearby.", "आसपास काम करने वाले खोजने के लिए अपना इलाका चुनें।")}</Body>
+      </Section></View>
+      <Image source={heroImage} style={look.introImage} resizeMode="cover" accessible={false} />
+    </View>
+    <LocationField />
+    {demoPin && <Row><DemoLocationButton pin={demoPin} /></Row>}
+  </Panel>;
+}
+
+export function VisitPin({ pinCode, change = false }: { pinCode: string; change?: boolean }) {
+  const { setPinCode } = useLocation();
+  const { t } = useCopy();
+  const router = useRouter();
+  return <Row>
+    <Tag tone="info">{t("Visit PIN", "विज़िट का पिन")} {pinCode}</Tag>
+    {change && <Button compact secondary label={t("Change location", "जगह बदलें")} onPress={() => {
+      setPinCode("");
+      router.dismissTo("/");
+    }} />}
+  </Row>;
+}
+
 const look = StyleSheet.create({
-  container: { gap: 9, zIndex: 5 },
-  searchInput: { borderRadius: 12, borderWidth: 1.5, paddingVertical: 14, paddingHorizontal: 15, backgroundColor: colors.white },
-  dropdown: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, borderRadius: 14, overflow: "hidden", marginTop: -3 },
-  option: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: colors.border, minHeight: 64 },
-  optionActive: { backgroundColor: colors.panel },
-  optionPin: { fontSize: 22, color: colors.accent, width: 28, textAlign: "center" },
-  optionText: { flex: 1, gap: 4 },
-  optionName: { fontFamily, color: colors.ink, fontSize: 15, fontWeight: "700" },
-  optionDescription: { fontFamily, color: colors.muted, fontSize: 12, lineHeight: 18 },
-  arrow: { color: colors.accent, fontSize: 20 },
-  lookup: { flexDirection: "row", alignItems: "center", gap: 9, padding: 12 },
-  manual: { paddingHorizontal: 16, paddingVertical: 13 },
-  manualText: { fontFamily, color: colors.accent, fontWeight: "600", fontSize: 14, lineHeight: 20 },
-  attribution: { color: colors.muted, fontSize: 11, paddingHorizontal: 16, paddingBottom: 12 },
-  selectedLocation: { flexDirection: "row", gap: 9, alignItems: "center", padding: 13, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.white },
-  pin: { fontSize: 22, color: colors.accent },
-  selectedText: { fontFamily, flex: 1, color: colors.ink, fontWeight: "600", fontSize: 15 },
-  change: { color: colors.accent, fontSize: 13, fontWeight: "600" },
-  pressed: { opacity: 0.75 },
+  container: { gap: 9 },
+  intro: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 14 },
+  introCopy: { flexGrow: 1, flexBasis: 150 },
+  introImage: { width: 84, height: 92, borderRadius: 12, backgroundColor: colors.peach },
+  selected: { flexDirection: "row", alignItems: "center", gap: 9, padding: 13, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
+  label: { flex: 1, fontFamily, color: colors.ink, fontWeight: "600" },
+  change: { color: colors.blue, fontFamily, fontWeight: "600" },
 });

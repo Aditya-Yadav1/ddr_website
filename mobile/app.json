@@ -8,6 +8,8 @@
     "web": { "output": "single" },
     "android": { "package": "com.handyhive.app" },
     "ios": { "bundleIdentifier": "com.handyhive.app" },
-    "plugins": ["expo-router", "expo-secure-store", "./plugins/with-android-cmake"]
+    "plugins": ["expo-router", "expo-secure-store", ["expo-location", {
+      "locationWhenInUsePermission": "Use your location to find the visit area and workers who serve it."
+    }], "./plugins/with-android-cmake"]
   }
 }

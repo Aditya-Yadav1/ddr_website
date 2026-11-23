@@ -58,16 +58,38 @@ const updateLabels: Record<string, string> = {
   "Booking request expired": "बुकिंग अनुरोध की अवधि समाप्त हो गई",
   "Booking cancelled": "बुकिंग रद्द की गई",
   "Job completed": "काम पूरा हुआ",
+  "Quote ready to review": "कोटेशन देखने के लिए तैयार है",
+  "Quote decision recorded": "कोटेशन का फ़ैसला दर्ज हुआ",
+  "Payment recorded": "भुगतान दर्ज हुआ",
+  "Payment report reviewed": "भुगतान रिपोर्ट देखी गई",
+  "Receipt reversed": "रसीद वापस ली गई",
+  "New appointment proposed": "विज़िट का नया समय प्रस्तावित है",
+  "Appointment decision recorded": "विज़िट का फ़ैसला दर्ज हुआ",
+  "Arrival estimate updated": "पहुँचने का अनुमान बदला",
+  "Booking issue reported": "बुकिंग की समस्या दर्ज हुई",
+  "Booking issue updated": "बुकिंग की समस्या पर नया अपडेट",
+  "Booking cancelled by worker": "काम करने वाले ने बुकिंग रद्द की",
 };
 const errors: Record<string, string> = {
-  "LOCATION_UNAVAILABLE": "यह काम करने वाला आपके इलाके में सेवा नहीं देता। कोई दूसरा इलाका या काम करने वाला चुनें।",
+  "WORKER_UNAVAILABLE": "इस काम करने वाले की जाँच अभी पूरी या मान्य नहीं है। दूसरा काम करने वाला चुनें।",
+  "TRUST_REQUIRED": "आगे बढ़ने से पहले काम करने वाले की जाँच पूरी होनी चाहिए।",
+  "ARRIVAL_CONFIRMATION_REQUIRED": "काम शुरू होने से पहले ग्राहक सामने से आपकी पहचान जाँचकर पुष्टि करे।",
+  "INVALID_SERVER_RESPONSE": "सर्वर ने ऐप की जानकारी के बजाय वेब पेज भेजा। सर्वर का पता जाँचें।",
+  "Cannot reach the pilot server. Keep the computer running and connect this phone to the same Wi-Fi.": "पायलट सर्वर से संपर्क नहीं हो पाया। कंप्यूटर चालू रखें और फ़ोन को उसी Wi-Fi से जोड़ें।",
+  "HandyHive took too long to respond. Please try again.": "HandyHive का जवाब आने में अधिक समय लगा। फिर कोशिश करें।",
+  "LOCATION_UNAVAILABLE": "यह काम करने वाला इस पिन कोड में सेवा नहीं देता। इस पते के लिए दूसरा काम करने वाला चुनें।",
   "INVALID_LOCATION": "अपना इलाका और शहर लिखें।",
+  "INVALID_PIN_CODE": "मान्य छह अंकों वाला पिन कोड डालें।",
+  "INVALID_WORK_PHONE": "मान्य भारतीय काम का मोबाइल नंबर डालें या फ़ील्ड खाली छोड़ें।",
+  "INVALID_REVIEW": "समीक्षा अधिकतम 500 अक्षरों में लिखें।",
   "OFFER_CHANGED": "इस विकल्प में बदलाव हुआ है। भेजने से पहले नई दर और शामिल काम देखें।",
   "INVALID_BOOKING_DETAILS": "अपना नाम, पता, समय और चुनी हुई दर जाँचें।",
   "INVALID_PLUS": "प्लस की दर अधिक रखें और उसमें शामिल अतिरिक्त काम लिखें।",
   "INTENT_REUSED": "यह अनुरोध पहले ही अलग जानकारी के साथ भेजा गया है।",
   "OPERATION_ID_REUSED": "यह अनुरोध पहले ही अलग जानकारी के साथ भेजा गया है।",
   "SLOT_UNAVAILABLE": "यह समय उपलब्ध नहीं है। कोई दूसरा समय चुनें।",
+  "QUOTE_REQUIRED": "काम शुरू होने से पहले ग्राहक को कोटेशन मंज़ूर करना होगा।",
+  "TASK_UNAVAILABLE": "यह काम या इलाका अब इस काम करने वाले की सूची में नहीं है।",
   "BOOKING_CHANGED": "बुकिंग की स्थिति बदल गई है। नई स्थिति देखें।",
   "REQUEST_EXPIRED": "अनुरोध की अवधि समाप्त हो गई है।",
   "Could not reach HandyHive. Check your connection and try again.": "HandyHive से संपर्क नहीं हो पाया। कनेक्शन जाँचें और फिर कोशिश करें।",
@@ -95,7 +117,8 @@ export function useCopy() {
   const t: Copy = (english, hindi) => language === "hi" ? hindi : english;
   const intl = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(locale, options);
   function money(price: number) {
-    return new Intl.NumberFormat(locale, { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(price);
+    return new Intl.NumberFormat(locale, { style: "currency", currency: "INR",
+      minimumFractionDigits: Number.isInteger(price) ? 0 : 2, maximumFractionDigits: 2 }).format(price);
   }
   function rate(offer: { price: number; unit: Unit }) {
     return money(offer.price) + " / " + t(...units[offer.unit]);

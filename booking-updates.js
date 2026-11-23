@@ -44,7 +44,7 @@ module.exports = function bookingUpdates(db, sms, readJobs) {
       const now = Date.now();
       for (const job of after) {
         const update = updates[job.status];
-        if (!update || previous.get(job.id) === job.status) continue;
+        if (!update || previous.get(job.id) === job.status || (job.status === "cancelled" && job.cancellation?.role === "pro")) continue;
         const owner = update.role === "pro" ? job.proId : job.customerId;
         if (!owner) continue;
         insert.run(owner, job.id, job.status, now, sms && optedIn.get(owner) ? "queued" : "off", now);

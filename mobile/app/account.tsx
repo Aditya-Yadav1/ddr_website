@@ -1,8 +1,13 @@
+import { SavedAddresses } from "../src/saved-addresses";
+import { SavedWorkers } from "../src/saved-workers";
+import { ProviderSafetyHistory } from "../src/provider-actions";
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import { offlineDemo } from "../src/api";
+import { DemoAccounts } from "../src/demo-accounts";
 import { useCopy } from "../src/language";
 import { useSession } from "../src/session";
-import { Body, Button, Feedback, Heading, LanguageButton, MainNav, Page, Panel, Row, Section } from "../src/ui";
+import { Body, Button, Feedback, Heading, MainNav, Page, Panel, Section } from "../src/ui";
 
 export default function Account() {
   const { snapshot, logout, error: connectionError } = useSession();
@@ -24,16 +29,17 @@ export default function Account() {
   return <Page footer={<MainNav selected="account" />}>
     <Heading>{t("Your account", "आपका खाता")}</Heading>
     <Feedback error={connectionError} />
-    <Panel>
-      <Heading size="small">{t("Language", "भाषा")}</Heading>
-      <Row><Body>{t("English", "हिन्दी")}</Body><LanguageButton /></Row>
-    </Panel>
+    <Button secondary tone="info" label={t("Customer Support", "ग्राहक सहायता")} onPress={() => router.push("/support")} />
+    {offlineDemo && <DemoAccounts />}
+    <SavedAddresses />
+    <SavedWorkers />
+    <ProviderSafetyHistory />
     {!!snapshot?.state.bookingUpdates?.length && <Section>
       <Heading size="medium">{t("Booking updates", "बुकिंग के अपडेट")}</Heading>
       {snapshot.state.bookingUpdates.map((update) => {
         const booking = snapshot.state.requests.find((item) => item.id === update.job);
         if (!booking) return null;
-        return <Panel key={update.job + update.label}>
+        return <Panel key={update.id ?? update.job + update.label}>
           <Heading size="small">{copy.updateLabel(update.label)}</Heading>
           <Body>{copy.task(booking.service, booking.scope)}</Body>
           <Body small>{update.role === "pro" ? t("Worker job", "आपका काम") : booking.proName} · {copy.dateTime(update.created)}</Body>

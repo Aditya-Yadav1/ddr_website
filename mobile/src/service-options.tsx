@@ -46,14 +46,13 @@ function OptionCard({ profile, tier, selected, onChange }: {
     ? t(copy.tier(tier) + " selected", copy.tier(tier) + " चुना है")
     : t("Choose " + copy.tier(tier), copy.tier(tier) + " चुनें");
 
-  return <View style={[styles.card, plus && styles.plusCard, selected && (plus ? styles.plusSelected : styles.everydaySelected)]}>
+  return <View style={[styles.card, plus && styles.plusCard, selected && styles.selectedCard]}>
     <View style={[styles.header, plus && styles.plusHeader]}>
       <View style={styles.titleRow}>
         <View style={styles.nameRow}>
           <Text accessible={false} style={[styles.emblem, plus && styles.plusEmblem]}>{plus ? "✦" : "✓"}</Text>
           <Text accessibilityRole="header" style={[styles.title, plus && styles.plusTitle]}>{copy.tier(tier)}</Text>
         </View>
-        {plus && <Text style={styles.premiumLabel}>{t("WITH EXTRAS", "अतिरिक्त सेवाएँ")}</Text>}
       </View>
       <Text style={[styles.tagline, plus && styles.plusTagline]}>{plus
         ? t("More care in the details.", "बारीकियों पर और ध्यान।")
@@ -82,12 +81,12 @@ function OptionCard({ profile, tier, selected, onChange }: {
       {onChange && <Pressable accessibilityRole="radio" accessibilityState={{ checked: selected }}
         accessibilityLabel={label} onPress={() => onChange(tier)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         onHoverIn={() => setFocused(true)} onHoverOut={() => setFocused(false)}
-        style={({ pressed }) => [styles.choose, plus && styles.plusChoose, selected && (plus ? styles.plusChosen : styles.chosen),
+        style={({ pressed }) => [styles.choose, selected && styles.chosen,
           focused && styles.focused, pressed && { opacity: 0.8 }]}>
-        <View accessible={false} style={[styles.radio, plus && styles.plusRadio, selected && styles.radioSelected]}>
-          {selected && <Text style={[styles.radioCheck, plus && styles.plusRadioCheck]}>✓</Text>}
+        <View accessible={false} style={[styles.radio, selected && styles.radioSelected]}>
+          {selected && <Text style={styles.radioCheck}>✓</Text>}
         </View>
-        <Text style={[styles.chooseText, plus && styles.plusChooseText]}>{label}</Text>
+        <Text style={styles.chooseText}>{label}</Text>
       </Pressable>}
     </View>
   </View>;
@@ -97,9 +96,8 @@ const styles = StyleSheet.create({
   options: { flexDirection: "row", flexWrap: "wrap", gap: 14, alignItems: "stretch" },
   card: { flexBasis: 280, flexGrow: 1, flexShrink: 1, minWidth: 0, borderWidth: 2, borderColor: colors.border, borderRadius: 18, backgroundColor: colors.white, overflow: "hidden" },
   plusCard: { backgroundColor: premium.paper, borderColor: premium.border },
-  everydaySelected: { borderColor: colors.accent },
-  plusSelected: { borderColor: premium.text },
-  header: { padding: 18, gap: 9, backgroundColor: "#EFF4ED" },
+  selectedCard: { borderColor: colors.blue },
+  header: { padding: 18, gap: 9, backgroundColor: colors.neutral },
   plusHeader: { backgroundColor: premium.ink },
   titleRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", justifyContent: "space-between", gap: 10 },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 9 },
@@ -107,8 +105,6 @@ const styles = StyleSheet.create({
   plusEmblem: { color: premium.gold, fontSize: 24 },
   title: { fontFamily, fontSize: 23, fontWeight: "700", lineHeight: 30, color: colors.ink, letterSpacing: -0.5 },
   plusTitle: { color: "#FFF6E5" },
-  premiumLabel: { fontFamily, fontSize: 10, lineHeight: 16, letterSpacing: 1, fontWeight: "700", color: premium.gold,
-    borderWidth: 1, borderColor: "#71816A", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
   tagline: { fontFamily, color: colors.muted, fontSize: 14, lineHeight: 21 },
   plusTagline: { color: premium.muted },
   content: { padding: 18, gap: 15, flex: 1 },
@@ -127,16 +123,11 @@ const styles = StyleSheet.create({
   extraMark: { fontSize: 20, lineHeight: 23, color: premium.text },
   extraText: { fontFamily, flex: 1, fontSize: 14, lineHeight: 22, fontWeight: "500", color: "#503D21" },
   choose: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 9, padding: 13, minHeight: 50,
-    borderWidth: 1, borderColor: colors.accent, borderRadius: 11, backgroundColor: "#EFF4ED", marginTop: "auto" },
-  chosen: { backgroundColor: colors.panel },
-  plusChoose: { backgroundColor: premium.ink, borderColor: premium.ink },
-  plusChosen: { backgroundColor: "#153329", borderColor: premium.text },
-  chooseText: { fontFamily, flexShrink: 1, textAlign: "center", fontSize: 15, lineHeight: 22, fontWeight: "600", color: colors.deep },
-  plusChooseText: { color: "#FFF6E5" },
-  radio: { width: 19, height: 19, borderRadius: 10, borderWidth: 1, borderColor: colors.accent, alignItems: "center", justifyContent: "center" },
-  plusRadio: { borderColor: premium.gold },
+    borderWidth: 1, borderColor: colors.blue, borderRadius: 11, backgroundColor: colors.white, marginTop: "auto" },
+  chosen: { backgroundColor: colors.blueTint },
+  chooseText: { fontFamily, flexShrink: 1, textAlign: "center", fontSize: 15, lineHeight: 22, fontWeight: "600", color: colors.blue },
+  radio: { width: 19, height: 19, borderRadius: 10, borderWidth: 1, borderColor: colors.blue, alignItems: "center", justifyContent: "center" },
   radioSelected: { borderWidth: 0 },
-  radioCheck: { fontSize: 17, fontWeight: "700", color: colors.accent },
-  plusRadioCheck: { color: premium.gold },
-  focused: { outlineColor: "#A96C14", outlineWidth: 3, outlineOffset: 3 },
+  radioCheck: { fontSize: 17, fontWeight: "700", color: colors.blue },
+  focused: { outlineColor: colors.blue, outlineWidth: 3, outlineOffset: 2 },
 });

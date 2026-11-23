@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/.expo
+**/dist
+mobile/android
+mobile/ios
+assets
+test
+*.sqlite*
+.env*
+*.apk

@@ -1,92 +1,79 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { tasks } from "../src/catalog";
+import { offlineDemo } from "../src/api";
+import { DemoAccounts } from "../src/demo-accounts";
+import { useDiscovery } from "../src/discovery";
+import { look, Promises, TaskCard, WorkerPreview } from "../src/discovery-ui";
 import { useCopy } from "../src/language";
-import { LocationField, useLocation } from "../src/location";
-import { useSession } from "../src/session";
-import { activeStatuses, Body, BookingCard, Button, colors, Feedback, Field, fontFamily, Guide, Heading, heroImage, MainNav, Page, Row, Section, ServiceImage } from "../src/ui";
+import { LocationField, PinGate, useLocation } from "../src/location";
+import { activeStatuses, Body, BookingCard, Button, colors, Feedback, Field, Heading, heroImage, MainNav, Page, Panel, Row, Section, ServiceImage } from "../src/ui";
 
 export default function CustomerHome() {
-  const { snapshot, error } = useSession();
-  const { location, ids, checked } = useLocation();
+  const { snapshot, error, retry } = useDiscovery();
+  const { pinCode, locality, ids, checked } = useLocation();
   const router = useRouter();
   const copy = useCopy();
   const { t } = copy;
-  const { width } = useWindowDimensions();
   const [query, setQuery] = useState("");
-  const [hovered, setHovered] = useState("");
-  if (!snapshot) return null;
-  const { catalog, profiles, requests, account } = snapshot.state;
-  const activeBooking = requests.filter((booking) => booking.customerId === account.id
-    && activeStatuses.includes(booking.status)).sort((a, b) => b.updatedAt - a.updatedAt)[0];
-  const availableProfiles = location.trim() ? profiles.filter((person) => checked && ids.includes(person.id)) : profiles;
-  const open = (service: string) => router.push({ pathname: "/services/[id]", params: { id: service, query: query.trim() } });
-
+  const [collection, setCollection] = useState("essentials");
+  if (!snapshot) return <Page><Heading>{t("A hand for your home", "घर के काम में मदद")}</Heading><Feedback error={error} /><Button label={t("Try again", "फिर कोशिश करें")} onPress={retry} /></Page>;
+  const { catalog, profiles, requests, account, demoPinCode, ratings = [], popular = [] } = snapshot.state;
+  const eligible = checked ? profiles.filter((person) => ids.includes(person.id)) : [];
+  if (!eligible.length) return <Page footer={<MainNav selected="discover" />}>
+    <PinGate demoPin={demoPinCode} />
+    {offlineDemo && <DemoAccounts />}
+    <Button secondary tone="info" label={t("Customer Support", "ग्राहक सहायता")} onPress={() => router.push("/support")} />
+  </Page>;
+  const active = requests.filter((booking) => booking.customerId === account.id && activeStatuses.includes(booking.status)).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const previous = requests.filter((booking) => booking.customerId === account.id && booking.status === "completed").slice(0, 2);
+  const needle = query.trim().toLowerCase();
+  const matchedTasks = tasks.filter((task) => [task.task, task.name, task.hi, copy.task(task.service, task.task), ...task.aliases].some((text) => text.toLowerCase().includes(needle)));
+  const matchingWorkers = eligible.filter((person) => {
+    const service = catalog.services.find((item) => item.id === person.service);
+    return [person.name, service?.name, copy.service(person.service, service?.name ?? person.service)]
+      .some((term) => term?.toLowerCase().includes(needle));
+  }).slice(0, 4);
+  const localPopular = popular.filter((item) => item.pinCode === pinCode && eligible.some((person) => person.service === item.service));
+  const featured = localPopular.length ? localPopular.map((item) => tasks.find((task) => task.service === item.service && task.task === item.scope)).filter((task): task is typeof tasks[number] => Boolean(task)).slice(0, 4) : [tasks[0], tasks[5], tasks[8], tasks[14]];
   return <Page footer={<MainNav selected="discover" />}>
-    <View style={screen.welcome}>
-      <View style={screen.welcomeCopy}>
-        <Text style={screen.hello}>{t("Hi there. Let’s get it sorted.", "नमस्ते। चलिए, काम आसान करें।")}</Text>
-        <Text accessibilityRole="header" style={[screen.title, width < 500 && screen.titleSmall]}>{t("What needs a hand\nat home today?", "आज घर के किस\nकाम में मदद चाहिए?")}</Text>
-        <Body small>{t("Find local help, at a price you can see upfront.", "स्थानीय मदद पाएँ। शुरुआती कीमत पहले ही देखें।")}</Body>
-      </View>
-      {width >= 390 && <Image source={heroImage} style={[screen.welcomeImage, width < 600 && screen.welcomeImageSmall]} resizeMode="cover" accessible={false} />}
-    </View>
-    <LocationField />
-    {checked && ids.length > 0 && <Guide>{t("Good news, we can help here. What shall we get done?", "अच्छी खबर है, यहाँ सेवा उपलब्ध है। कौन-सा काम करवाएँ?")}</Guide>}
-    <Feedback error={error} />
-    <Section>
-      <Heading size="medium">{t("What do you need help with?", "आपको किस काम में मदद चाहिए?")}</Heading>
-      <View style={screen.services}>
-        {catalog.services.map((item) => {
-          const workers = availableProfiles.filter((person) => person.service === item.id)
-            .sort((a, b) => a.price * (a.unit === "hourly" ? 2 : 1) - b.price * (b.unit === "hourly" ? 2 : 1));
-          const first = workers[0];
-          return <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={copy.service(item.id, item.name)}
-            accessibilityHint={t("See workers and starting prices", "काम करने वाले और शुरुआती कीमतें देखें")}
-            onHoverIn={() => setHovered(item.id)} onHoverOut={() => setHovered("")}
-            onPress={() => open(item.id)} style={({ pressed }) => [screen.service, { width: width < 600 ? "48%" : "23.5%" }, hovered === item.id && screen.serviceHover, pressed && screen.pressed]}>
-            <ServiceImage service={item.id} />
-            <View style={screen.cardTitle}><Text style={screen.serviceTitle}>{copy.service(item.id, item.name)}</Text><Text style={screen.cardArrow}>↗</Text></View>
-            <Body small>{copy.serviceNote(item.id, item.note)}</Body>
-            {first ? <Text style={screen.price}>{t("From ", "शुरुआत ")}{copy.money(first.price * (first.unit === "hourly" ? 2 : 1))}
-              {first.unit === "hourly" ? t(" / 2 hours", " / 2 घंटे") : first.unit === "visit" ? t(" / visit", " / विज़िट") : t(" / package", " / पैकेज")}</Text>
-              : <Body small>{t("Check service options", "सेवा के विकल्प देखें")}</Body>}
-          </Pressable>;
-        })}
-      </View>
-    </Section>
-    <Section>
-      <Heading size="medium">{t("Not sure what to pick?", "समझ नहीं आ रहा क्या चुनें?")}</Heading>
-      <Field label={t("Tell me what needs fixing", "बताइए, क्या ठीक करवाना है?")} value={query} onChangeText={setQuery}
-        placeholder={t("For example, leaking tap", "जैसे, टपकता नल")} returnKeyType="search" onSubmitEditing={() => open("all")} />
-      <Row>{[
-        { label: t("Leaking tap", "टपकता नल"), service: "plumbing", query: "leaking tap" },
-        { label: t("Fan trouble", "पंखे की दिक्कत"), service: "electrical", query: "fan" },
-        { label: t("Kitchen cleaning", "रसोई की सफ़ाई"), service: "cleaning", query: "kitchen" },
-      ].map((suggestion) => <Button key={suggestion.service} secondary compact label={suggestion.label} onPress={() => router.push({ pathname: "/services/[id]", params: { id: suggestion.service, query: suggestion.query } })} />)}</Row>
-      <Button label={t("Help me find the right service →", "सही सेवा खोजें →")} onPress={() => open("all")} />
-    </Section>
-    {activeBooking && <Section>
-      <Heading size="medium">{t("Your current booking", "आपकी चालू बुकिंग")}</Heading>
-      <BookingCard booking={activeBooking} />
+    <LocationField compact />
+    {offlineDemo && <DemoAccounts />}
+    <Section><Heading>{locality ? t("Workers in ", "यहाँ उपलब्ध काम करने वाले · ") + locality : t("Workers near you", "आपके आसपास काम करने वाले")}</Heading>
+      <Field label={t("Search services or local workers", "सेवा या स्थानीय काम करने वाले खोजें")} value={query} onChangeText={setQuery} placeholder={t("Try leaking tap, fan or kitchen…", "नल, पंखा या रसोई लिखें…")} returnKeyType="search" />
+      <Row>{[tasks[0], tasks[5], tasks[8]].map((task) => <Button key={task.id} compact secondary label={copy.task(task.service, task.task)} onPress={() => router.push({ pathname: "/tasks/[id]", params: { id: task.id } })} />)}</Row>
+    </Section><Feedback error={error} />
+    {!!matchingWorkers.length && <Section>
+      {matchingWorkers.map((person) => <WorkerPreview key={person.id} person={person}
+        rating={ratings.find((rating) => rating.pro === person.id)} service={catalog.services.find((item) => item.id === person.service)?.name ?? person.service}>
+        <Button secondary tone="info" label={t("View worker", "काम करने वाले की जानकारी देखें")} onPress={() =>
+          router.push({ pathname: "/providers/[id]", params: { id: person.id, pinCode } })} />
+      </WorkerPreview>)}
+      {eligible.length > matchingWorkers.length && !needle && <Button secondary label={t("View all workers", "सभी काम करने वाले देखें")}
+        onPress={() => router.push({ pathname: "/services/[id]", params: { id: "all", workers: "1" } })} />}
     </Section>}
+    {needle ? <Section><Heading size="medium">{t("Services", "सेवाएँ")} · {matchedTasks.length}</Heading>
+      <View style={look.grid}>{matchedTasks.map((task) => <TaskCard key={task.id} task={task} profiles={eligible} />)}</View>
+      {!matchedTasks.length && <Body>{t("Try a task, room or another spelling.", "काम, कमरे का नाम या दूसरी वर्तनी लिखें।")}</Body>}
+      <Button secondary label={t("Clear search", "खोज हटाएँ")} onPress={() => setQuery("")} />
+    </Section> : <>
+      {active && <BookingCard booking={active} />}
+      <View style={screen.welcome}><View style={{ flex: 1, gap: 8 }}><Text style={look.eyebrow}>{t("HELLO, NEIGHBOUR", "नमस्ते, पड़ोसी")}</Text><Heading size="medium">{t("Little fixes.\nA happier home.", "छोटे काम।\nघर में बड़ा सुकून।")}</Heading><Body small>{t("Choose your service. Meet your local help.", "सेवा चुनें। अपनी स्थानीय मदद पाएँ।")}</Body></View><Image source={heroImage} style={screen.hero} resizeMode="cover" accessible={false} /></View>
+      <Section><Heading size="medium">{t("Care for every corner", "घर के हर कोने की देखभाल")}</Heading><View style={screen.categories}>{catalog.services.map((service) => <Pressable key={service.id} accessibilityRole="button" onPress={() => router.push({ pathname: "/services/[id]", params: { id: service.id } })} style={({ pressed }) => [screen.category, pressed && { opacity: 0.75 }]}><ServiceImage service={service.id} /><Heading size="small">{copy.service(service.id, service.name)} ↗</Heading><Body small>{copy.serviceNote(service.id, service.note)}</Body></Pressable>)}</View></Section>
+      <Section><Heading size="medium">{localPopular.length ? t("Most booked near you", "आपके पास सबसे ज़्यादा बुक हुई सेवाएँ") : t("Explore home essentials", "घर की ज़रूरी सेवाएँ")}</Heading><View style={look.grid}>{featured.map((task) => <TaskCard key={task.id} task={task} profiles={eligible} />)}</View></Section>
+      <Promises />
+      <Section><Heading size="medium">{t("Make a little room for care", "घर की देखभाल के लिए थोड़ा समय")}</Heading><Row>{[["essentials", t("Small fixes", "छोटे काम")], ["fresh", t("A fresh space", "ताज़गी भरा घर")]].map(([id, label]) => <Button key={id} compact secondary selected={collection === id} label={label} onPress={() => setCollection(id)} />)}</Row><View style={look.grid}>{(collection === "fresh" ? [tasks[8], tasks[9], tasks[12]] : [tasks[0], tasks[4], tasks[5]]).map((task) => <TaskCard key={task.id} task={task} profiles={eligible} />)}</View></Section>
+      <Panel tone="warning"><Text style={look.eyebrow}>✦ HANDYHIVE PLUS</Text><Heading size="medium">{t("A little more, thoughtfully included.", "थोड़ा और, पूरे ध्यान के साथ।")}</Heading><Body>{t("Everyday covers your selected service. Plus adds the worker’s specific extras, with the difference in price shown clearly.", "एवरीडे में आपकी चुनी सेवा है। प्लस में काम करने वाले की बताई अतिरिक्त सेवाएँ और उनकी साफ़ कीमत है।")}</Body><Button secondary label={t("Explore Plus options →", "प्लस के विकल्प देखें →")} onPress={() => router.push({ pathname: "/services/[id]", params: { id: "all", plus: "1", workers: "1" } })} /></Panel>
+      {!!previous.length && <Section><Heading size="medium">{t("A familiar hand", "जानी-पहचानी मदद")}</Heading>{previous.map((booking) => <Panel key={booking.id}><Body strong>{copy.task(booking.service, booking.scope)}</Body><Body>{booking.proName}</Body><Button secondary label={t("Check a new visit", "नई विज़िट देखें")} onPress={() => router.push({ pathname: "/providers/[id]", params: { id: booking.proId, scope: booking.scope, tier: booking.tier, area: booking.area, pinCode: booking.pinCode } })} /></Panel>)}</Section>}
+      <Panel><Heading size="medium">{t("Before we knock", "हमारे आने से पहले")}</Heading><Body strong>{t("When is my visit confirmed?", "विज़िट कब पक्की होती है?")}</Body><Body small>{t("When your chosen worker accepts. Follow their response in Bookings.", "काम करने वाले के स्वीकार करने पर। बुकिंग में जवाब देखें।")}</Body><Body strong>{t("Does the visit price cover repairs?", "क्या विज़िट की कीमत में मरम्मत है?")}</Body><Body small>{t("A diagnostic fee covers assessment. Agree on repairs, materials and extra charges before work starts. Payment is arranged directly with the worker.", "जाँच के शुल्क में समस्या की जाँच है। काम शुरू होने से पहले मरम्मत, सामान और अतिरिक्त कीमत तय करें। भुगतान सीधे काम करने वाले से तय होगा।")}</Body></Panel>
+    </>}
+    <Button secondary tone="info" label={t("Customer Support", "ग्राहक सहायता")} onPress={() => router.push("/support")} />
   </Page>;
 }
-
 const screen = StyleSheet.create({
-  welcome: { backgroundColor: colors.peach, borderRadius: 20, padding: 18, flexDirection: "row", gap: 15, alignItems: "center", overflow: "hidden" },
-  welcomeCopy: { flex: 1, gap: 8 },
-  hello: { fontFamily, color: colors.orange, fontSize: 13, lineHeight: 19, fontWeight: "600" },
-  title: { fontFamily, color: colors.ink, fontSize: 32, lineHeight: 36, fontWeight: "700", letterSpacing: -1 },
-  titleSmall: { fontSize: 27, lineHeight: 32 },
-  welcomeImage: { width: 130, height: 130, borderRadius: 14 },
-  welcomeImageSmall: { width: 95, height: 145 },
-  services: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12 },
-  service: { padding: 10, borderWidth: 1.5, borderRadius: 16, borderColor: colors.border, backgroundColor: colors.white, gap: 8 },
-  serviceHover: { borderColor: colors.accent, backgroundColor: "#F5FAF0" },
-  cardTitle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 },
-  cardArrow: { color: colors.accent, fontSize: 21 },
-  serviceTitle: { fontFamily, flex: 1, color: colors.ink, fontSize: 16, lineHeight: 21, fontWeight: "700" },
-  price: { fontFamily, color: colors.accent, backgroundColor: colors.panel, borderRadius: 7, overflow: "hidden", paddingVertical: 6, paddingHorizontal: 7, fontSize: 13, lineHeight: 19, fontWeight: "700" },
-  pressed: { opacity: 0.85, transform: [{ scale: 0.97 }] },
+  welcome: { backgroundColor: colors.peach, borderRadius: 22, padding: 20, flexDirection: "row", gap: 12, alignItems: "center" },
+  hero: { width: 95, height: 120, borderRadius: 15 },
+  categories: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  category: { flexBasis: 155, flexGrow: 1, flexShrink: 1, backgroundColor: colors.white, borderRadius: 17, padding: 11, gap: 8, borderWidth: 1, borderColor: colors.border },
 });

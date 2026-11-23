@@ -1,14 +1,30 @@
-import { useRouter } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useState, type ReactNode } from "react";
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Booking, Profile, Tier, Unit } from "./api";
 import { useCopy } from "./language";
+import { useSession } from "./session";
 
 export const colors = {
   paper: "#FAF7F1", white: "#FFFEFB", panel: "#EAF2E9", ink: "#233C32", muted: "#5E6B62",
   border: "#E4E5DA", accent: "#286348", deep: "#1B4C35", light: "#FFFFFF",
   lime: "#F8DCA0", warm: "#FFF0DC", gold: "#805322", error: "#9B3430", orange: "#B64C28", peach: "#FBE8D9",
+  blue: "#27567C", blueDark: "#1D4260", blueTint: "#EDF4FA", blueLine: "#CADDEB",
+  redTint: "#FBEDEC", redDark: "#792723", neutral: "#F0EEE8", control: "#828D85",
+};
+
+type Tone = "neutral" | "info" | "success" | "warning" | "danger";
+const tones = {
+  neutral: { ink: colors.ink, fill: colors.neutral, line: colors.border },
+  info: { ink: colors.blue, fill: colors.blueTint, line: colors.blueLine },
+  success: { ink: colors.accent, fill: colors.panel, line: "#C8DDCC" },
+  warning: { ink: colors.gold, fill: colors.warm, line: "#E8D8B8" },
+  danger: { ink: colors.error, fill: colors.redTint, line: "#EAC4C2" },
+};
+const bookingTones: Record<Booking["status"], Tone> = {
+  pending: "warning", accepted: "success", en_route: "info", arrived: "info",
+  in_progress: "info", completed: "success", cancelled: "neutral", declined: "neutral", expired: "neutral",
 };
 
 export const serviceImages: Record<string, number> = {
@@ -37,15 +53,18 @@ export function Section({ children }: { children: ReactNode }) {
   return <View style={styles.section}>{children}</View>;
 }
 
-export function Guide({ children }: { children: ReactNode }) {
-  return <View style={styles.guide}>
-    <View accessible={false} style={styles.guideMark}><Text style={styles.guideLetter}>H</Text></View>
-    <Text accessibilityLiveRegion="polite" style={styles.guideText}>{children}</Text>
+export function Guide({ children, tone = "info" }: { children: ReactNode; tone?: Tone }) {
+  const { ink, fill } = tones[tone];
+  const mark = { neutral: "i", info: "i", success: "✓", warning: "!", danger: "!" }[tone];
+  return <View style={[styles.guide, { backgroundColor: fill }]}>
+    <View accessible={false} aria-hidden style={styles.guideMark}><Text style={[styles.guideLetter, { color: ink }]}>{mark}</Text></View>
+    <Text accessibilityLiveRegion="polite" style={[styles.guideText, { color: ink }]}>{children}</Text>
   </View>;
 }
 
-export function Panel({ children, tint }: { children: ReactNode; tint?: "green" | "warm" }) {
-  return <View style={[styles.panel, tint === "green" && styles.green, tint === "warm" && styles.warm]}>{children}</View>;
+export function Panel({ children, tone }: { children: ReactNode; tone?: Tone }) {
+  const palette = tone && tones[tone];
+  return <View style={[styles.panel, palette && { backgroundColor: palette.fill, borderColor: palette.line }]}>{children}</View>;
 }
 
 export function Heading({ children, size = "large" }: { children: ReactNode; size?: "large" | "medium" | "small" }) {
@@ -57,46 +76,76 @@ export function Body({ children, small, strong, notice }: { children: ReactNode;
     style={[styles.body, small && styles.small, strong && styles.strong]}>{children}</Text>;
 }
 
-export function Tag({ children, warm }: { children: ReactNode; warm?: boolean }) {
-  return <Text style={[styles.tag, warm && styles.tagWarm]}>{children}</Text>;
+export function Tag({ children, tone = "neutral", mark }: { children: ReactNode; tone?: Tone; mark?: string }) {
+  const { ink, fill } = tones[tone];
+  return <Text style={[styles.tag, { color: ink, backgroundColor: fill }]}>
+    {mark && <Text aria-hidden>{mark} </Text>}{children}
+  </Text>;
+}
+
+export function BookingStatus({ status }: { status: Booking["status"] }) {
+  const copy = useCopy();
+  const tone = bookingTones[status];
+  return <Tag tone={tone} mark={tone === "success" ? "✓" : tone === "warning" ? "◷" : undefined}>{copy.status(status)}</Tag>;
+}
+
+export function RatingScore({ children }: { children: ReactNode }) {
+  return <Body small strong><Text aria-hidden style={styles.ratingStar}>★ </Text>{children}</Body>;
 }
 
 export function Feedback({ error }: { error?: unknown }) {
   const { translateError } = useCopy();
-  return error ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.error}>{translateError(error)}</Text> : null;
+  return error ? <ErrorMessage>{translateError(error)}</ErrorMessage> : null;
 }
 
-export function Button({ label, onPress, disabled, secondary, selected, compact, danger }: {
+function ErrorMessage({ children }: { children: string }) {
+  return <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.error}>{children}</Text>;
+}
+
+export function Button({ label, onPress, disabled, secondary, selected, compact, danger, expanded, tone, mark, accessibilityLabel }: {
   label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; selected?: boolean; compact?: boolean; danger?: boolean;
+  expanded?: boolean; tone?: Tone; mark?: string; accessibilityLabel?: string;
 }) {
-  const plain = secondary && !selected;
-  const [highlighted, setHighlighted] = useState(false);
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled: Boolean(disabled), selected }}
-    disabled={disabled} onPress={onPress} onHoverIn={() => setHighlighted(true)} onHoverOut={() => setHighlighted(false)}
-    onFocus={() => setHighlighted(true)} onBlur={() => setHighlighted(false)} style={({ pressed }) => [
-      styles.button, plain && styles.secondary, compact && styles.compact, danger && styles.danger,
-      highlighted && (plain ? styles.secondaryHover : styles.buttonHover),
-      pressed && styles.pressed, disabled && styles.dim,
-    ]}>
-    <Text style={[styles.buttonText, plain && styles.secondaryText, danger && styles.dangerText]}>{label}</Text>
+  const palette = tones[danger ? "danger" : tone ?? (secondary && !selected ? "neutral" : "info")];
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const emphasis = !secondary && selected === undefined;
+  const borderColor = palette === tones.neutral ? colors.control : palette.ink;
+  const textColor = disabled ? colors.muted : emphasis ? colors.light : palette.ink;
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label}
+    accessibilityState={{ disabled: Boolean(disabled), selected, expanded }}
+    disabled={disabled} onPress={onPress} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}
+    onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} style={({ pressed }) => {
+      const highlight = hovered || pressed;
+      const fill = emphasis ? (highlight ? danger ? colors.redDark : colors.blueDark : palette.ink)
+        : highlight || selected ? palette.fill : colors.white;
+      return [
+        styles.button, compact && styles.compact,
+        { backgroundColor: fill, borderColor }, focused && styles.focused, pressed && styles.pressed, disabled && styles.disabled,
+      ];
+    }}>
+    <Text style={[styles.buttonText, { color: textColor }]}>
+      {(mark || (selected && "✓")) && <Text aria-hidden>{mark || "✓"} </Text>}{label}
+    </Text>
   </Pressable>;
 }
 
-export function Field({ label, hint, ...input }: TextInputProps & { label: string; hint?: string }) {
+export function Field({ label, hint, error, ...input }: TextInputProps & { label: string; hint?: string; error?: string }) {
   const [focused, setFocused] = useState(false);
   return <View style={styles.field}>
     <Text style={styles.fieldLabel}>{label}</Text>
     <TextInput {...input} accessibilityLabel={label} placeholderTextColor={colors.muted}
       onFocus={(event) => { setFocused(true); input.onFocus?.(event); }}
       onBlur={(event) => { setFocused(false); input.onBlur?.(event); }}
-      style={[styles.input, input.multiline && styles.multiline, input.style, focused && styles.inputFocused]} />
+      style={[styles.input, input.multiline && styles.multiline, input.style, error && { borderColor: colors.error }, focused && styles.focused]} />
+    {error && <ErrorMessage>{error}</ErrorMessage>}
     {hint && <Body small>{hint}</Body>}
   </View>;
 }
 
 export function Loading() {
   const { t } = useCopy();
-  return <Page><ActivityIndicator accessibilityLabel={t("Loading", "लोड हो रहा है")} color={colors.accent} /></Page>;
+  return <Page><ActivityIndicator accessibilityLabel={t("Loading", "लोड हो रहा है")} color={colors.blue} /></Page>;
 }
 
 export function LanguageButton() {
@@ -107,6 +156,7 @@ export function LanguageButton() {
 export function MainNav({ selected }: { selected: "discover" | "bookings" | "worker" | "account" }) {
   const router = useRouter();
   const { t } = useCopy();
+  const { token } = useSession();
   const links = [
     { id: "discover", path: "/", label: t("Explore", "खोजें"), icon: "⌂" },
     { id: "bookings", path: "/bookings", label: t("Bookings", "बुकिंग") , icon: "≡" },
@@ -116,18 +166,24 @@ export function MainNav({ selected }: { selected: "discover" | "bookings" | "wor
   return <View style={styles.nav}>
     {links.map(({ id, path, label, icon }) => <Pressable key={id} accessibilityRole="tab" accessibilityLabel={label}
       accessibilityState={{ selected: id === selected }} style={[styles.navItem, id === selected && styles.navSelected]}
-      onPress={() => router.navigate(path)}>
+      onPress={() => router.navigate(!token && id !== "discover" ? "/sign-in" : path)}>
       <Text style={styles.navIcon}>{icon}</Text>
       <Text style={styles.navText}>{label}</Text>
     </Pressable>)}
   </View>;
 }
 
-export function Brand() {
-  return <View style={styles.brand}>
-    <View style={styles.brandMark}><Text style={styles.brandMarkText}>H</Text></View>
-    <Text style={styles.wordmark}>HandyHive</Text>
-  </View>;
+export function Brand({ compact = false }: { compact?: boolean }) {
+  const { t } = useCopy();
+  const [focused, setFocused] = useState(false);
+  return <Link href="/" dismissTo asChild>
+    <Pressable accessibilityRole="link" accessibilityLabel={t("HandyHive home", "HandyHive होम")}
+      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+      style={StyleSheet.flatten([styles.brand, focused && styles.focused])}>
+      <View aria-hidden style={styles.brandMark}><Text style={styles.brandMarkText}>H</Text></View>
+      {!compact && <Text style={styles.wordmark}>HandyHive</Text>}
+    </Pressable>
+  </Link>;
 }
 
 export function ServiceImage({ service }: { service: string }) {
@@ -139,7 +195,7 @@ export function TierPrice({ price, unit, tier, minimumQuantity }: { price: numbe
   const copy = useCopy();
   const minimum = minimumQuantity ?? (unit === "hourly" ? 2 : 1);
   return <Section>
-    <Row><Tag warm={tier === "plus"}>{copy.tier(tier)}</Tag><Text style={styles.rate}>{copy.rate({ price, unit })}</Text></Row>
+    <Row><Tag tone={tier === "plus" ? "warning" : "neutral"}>{copy.tier(tier)}</Tag><Text style={styles.rate}>{copy.rate({ price, unit })}</Text></Row>
     {unit === "hourly" && <Body small>{copy.t(
       copy.money(price * minimum) + " minimum for " + minimum + " hours",
       minimum + " घंटे के लिए कम से कम " + copy.money(price * minimum),
@@ -162,7 +218,7 @@ export function BookingCard({ booking, worker }: { booking: Booking; worker?: bo
   const copy = useCopy();
   const title = copy.task(booking.service, booking.scope);
   return <Panel>
-    <Row><Tag>{copy.status(booking.status)}</Tag>{booking.tier === "plus" && <Tag warm>{copy.tier("plus")}</Tag>}</Row>
+    <Row><BookingStatus status={booking.status} />{booking.tier === "plus" && <Tag tone="warning">{copy.tier("plus")}</Tag>}</Row>
     <Heading size="small">{title}</Heading>
     <Body small>{worker ? copy.area(booking.area) : booking.proName} · {copy.appointment(booking.appointment, booking.timing)}</Body>
     <Button secondary label={copy.t("View booking", "बुकिंग देखें")} onPress={() => router.push({ pathname: "/bookings/[id]", params: { id: booking.id } })} />
@@ -177,8 +233,6 @@ export const styles = StyleSheet.create({
   footer: { backgroundColor: colors.white, borderTopWidth: 1, borderColor: colors.border, paddingHorizontal: 10 },
   footerContent: { maxWidth: 860, width: "100%", alignSelf: "center" },
   panel: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, borderRadius: 16, padding: 18, gap: 13 },
-  green: { backgroundColor: colors.panel },
-  warm: { backgroundColor: colors.warm, borderColor: "#E8D8B8" },
   section: { gap: 9 },
   row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   heading: { fontFamily, fontSize: 29, lineHeight: 36, fontWeight: "700", color: colors.ink, letterSpacing: -0.7 },
@@ -187,38 +241,32 @@ export const styles = StyleSheet.create({
   body: { fontFamily, fontSize: 16, lineHeight: 23, color: colors.muted },
   small: { fontSize: 14, lineHeight: 20 },
   strong: { fontWeight: "700", color: colors.ink },
-  tag: { fontFamily, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, fontSize: 12, fontWeight: "700", color: colors.deep, backgroundColor: colors.panel, overflow: "hidden" },
-  tagWarm: { backgroundColor: colors.deep, color: "#F8DCA0" },
-  error: { fontSize: 14, lineHeight: 21, padding: 10, borderRadius: 10, color: colors.error, backgroundColor: "#FBECE6" },
-  button: { borderWidth: 1, borderColor: colors.accent, borderRadius: 12, backgroundColor: colors.accent, paddingHorizontal: 16, paddingVertical: 13, minHeight: 50, justifyContent: "center" },
-  buttonHover: { backgroundColor: colors.deep },
-  secondaryHover: { backgroundColor: colors.panel, borderColor: colors.accent },
-  secondary: { borderColor: colors.border, backgroundColor: colors.white },
+  tag: { fontFamily, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, fontSize: 12, fontWeight: "700", overflow: "hidden" },
+  ratingStar: { color: colors.gold },
+  error: { fontFamily, fontSize: 14, lineHeight: 21, padding: 10, borderRadius: 10, color: colors.error, backgroundColor: colors.redTint },
+  button: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13, minHeight: 50, justifyContent: "center" },
   compact: { alignSelf: "flex-start", paddingHorizontal: 12 },
-  danger: { borderColor: "#E4C6B8", backgroundColor: colors.white },
-  buttonText: { fontFamily, textAlign: "center", fontSize: 15, lineHeight: 21, fontWeight: "600", color: colors.light },
-  secondaryText: { color: colors.ink },
-  dangerText: { color: colors.error },
+  buttonText: { fontFamily, textAlign: "center", fontSize: 15, lineHeight: 21, fontWeight: "600" },
+  focused: { outlineColor: colors.blue, outlineWidth: 2, outlineOffset: 2, outlineStyle: "solid" },
   pressed: { opacity: 0.8, transform: [{ scale: 0.98 }] },
-  dim: { opacity: 0.52 },
+  disabled: { backgroundColor: colors.neutral, borderColor: colors.border },
   field: { gap: 5 },
   fieldLabel: { fontFamily, fontSize: 15, lineHeight: 21, color: colors.ink, fontWeight: "600" },
-  input: { fontFamily, minHeight: 52, borderWidth: 1.5, borderColor: colors.border, borderRadius: 11, color: colors.ink, backgroundColor: colors.white, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, lineHeight: 22 },
-  inputFocused: { borderColor: colors.accent, backgroundColor: "#FEFFF9" },
+  input: { fontFamily, minHeight: 52, borderWidth: 1.5, borderColor: colors.control, borderRadius: 11, color: colors.ink, backgroundColor: colors.white, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, lineHeight: 22 },
   multiline: { minHeight: 86, textAlignVertical: "top" },
   nav: { flexDirection: "row", paddingVertical: 6, gap: 4 },
   navItem: { flex: 1, alignItems: "center", minHeight: 54, padding: 7, borderRadius: 12, gap: 2 },
-  navSelected: { backgroundColor: colors.panel },
-  navIcon: { fontSize: 20, fontWeight: "800", color: colors.accent },
+  navSelected: { backgroundColor: colors.blueTint },
+  navIcon: { fontSize: 20, fontWeight: "800", color: colors.blue },
   navText: { fontFamily, fontSize: 12, fontWeight: "600", color: colors.ink, textAlign: "center" },
-  brand: { flexDirection: "row", alignItems: "center", gap: 8 },
+  brand: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 5, minWidth: 44, minHeight: 44, borderRadius: 10 },
   brandMark: { alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.peach, width: 34, height: 34 },
   brandMarkText: { fontFamily, fontSize: 22, fontWeight: "700", color: colors.orange },
   wordmark: { fontFamily, color: colors.ink, fontSize: 20, fontWeight: "700" },
   serviceImage: { width: "100%", height: 100, backgroundColor: colors.panel, borderRadius: 11 },
-  guide: { flexDirection: "row", alignItems: "flex-start", gap: 11, padding: 15, backgroundColor: colors.panel, borderRadius: 15 },
+  guide: { flexDirection: "row", alignItems: "flex-start", gap: 11, padding: 15, borderRadius: 15 },
   guideMark: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
-  guideLetter: { fontFamily, fontWeight: "700", color: colors.accent, fontSize: 18 },
-  guideText: { fontFamily, flex: 1, color: colors.deep, fontSize: 15, lineHeight: 23, paddingTop: 3 },
+  guideLetter: { fontFamily, fontWeight: "700", fontSize: 18 },
+  guideText: { fontFamily, flex: 1, fontSize: 15, lineHeight: 23, paddingTop: 3 },
   rate: { fontFamily, fontSize: 19, lineHeight: 27, fontWeight: "700", color: colors.ink },
 });

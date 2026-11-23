@@ -1,0 +1,30 @@
+services:
+  api:
+    build: ..
+    restart: unless-stopped
+    environment:
+      HANDYHIVE_TRUST_PROXY: "1"
+      HANDYHIVE_PUBLIC_ORIGIN: https://${HANDYHIVE_DOMAIN:?Set HANDYHIVE_DOMAIN}
+      TWILIO_API_KEY: ${TWILIO_API_KEY:?Set TWILIO_API_KEY}
+      TWILIO_API_SECRET: ${TWILIO_API_SECRET:?Set TWILIO_API_SECRET}
+      TWILIO_VERIFY_SERVICE_SID: ${TWILIO_VERIFY_SERVICE_SID:?Set TWILIO_VERIFY_SERVICE_SID}
+    volumes:
+      - handyhive-data:/data
+    networks: [backend]
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      HANDYHIVE_DOMAIN: ${HANDYHIVE_DOMAIN:?Set HANDYHIVE_DOMAIN}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [backend]
+volumes:
+  handyhive-data:
+  caddy-data:
+  caddy-config:
+networks:
+  backend:

@@ -1,0 +1,5 @@
+{$HANDYHIVE_DOMAIN} {
+  reverse_proxy api:4174 {
+    header_up X-Forwarded-For {remote_host}
+  }
+}

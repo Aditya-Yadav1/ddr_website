@@ -1,0 +1,13 @@
+{
+  "name": "handyhive",
+  "version": "0.1.0",
+  "private": true,
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev": "node scripts/start-web.js --watch",
+    "start": "node scripts/start-web.js",
+    "build:web": "node scripts/start-web.js --build",
+    "typecheck": "npm --prefix mobile run typecheck",
+    "test": "node --test"
+  }
+}

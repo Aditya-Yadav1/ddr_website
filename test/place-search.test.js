@@ -2,6 +2,34 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const createPlaceSearch = require("../place-search.js");
+const { localPlaces } = require("../mobile/shared/local-places");
+
+test("locality selection distinguishes postal areas and supports Hindi and landmarks", () => {
+  assert.deepEqual(localPlaces("द्वारका").map((place) => place.pinCode), ["110075", "110078"]);
+  assert.deepEqual(localPlaces("sector 3 dwarka").map((place) => place.pinCode), ["110078"]);
+  assert.equal(localPlaces("IIT Delhi")[0].pinCode, "110016");
+  assert.deepEqual(localPlaces("unlisted landmark"), []);
+});
+
+test("postal search and reverse lookup use Indian postcodes supplied by the geocoder", async () => {
+  const features = [
+    { properties: { name: "Visit area", countrycode: "IN", postcode: "110016" } },
+    { properties: { name: "Missing code", countrycode: "IN" } },
+    { properties: { name: "Foreign area", countrycode: "DE", postcode: "110075" } },
+  ];
+  const search = createPlaceSearch({ fetch: async (url) => {
+    if (url.pathname === "/reverse") {
+      assert.equal(url.searchParams.get("lat"), "28.54");
+      assert.equal(url.searchParams.get("lon"), "77.19");
+    }
+    return { ok: true, json: async () => ({ features }) };
+  } });
+  const result = await search("visit area", ["Visit area"], true);
+  assert.deepEqual(result.suggestions.map((place) => place.pinCode), ["110016"]);
+  assert.equal((await search.reverse(28.54, 77.19)).place.pinCode, "110016");
+  features.shift();
+  assert.equal((await search.reverse(28.54, 77.19)).place, null);
+});
 
 test("place suggestions combine worker coverage with real locations and cache concurrent lookups", async () => {
   let calls = 0;

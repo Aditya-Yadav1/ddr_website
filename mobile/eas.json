@@ -1,0 +1,9 @@
+{
+  "build": {
+    "production": {
+      "environment": "production",
+      "env": { "HANDYHIVE_BUILD_CHANNEL": "production" },
+      "android": { "buildType": "apk" }
+    }
+  }
+}

@@ -1,11 +1,15 @@
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Image, StyleSheet } from "react-native";
-import { api, type PhoneChallenge, type PhoneMode } from "../src/api";
+import { api, offlineDemo, type PhoneChallenge, type PhoneMode } from "../src/api";
+import { DemoAccounts } from "../src/demo-accounts";
 import { useCopy } from "../src/language";
 import { useSession } from "../src/session";
 import { Body, Button, colors, Feedback, Field, Heading, heroImage, Page, Panel, Row, Section } from "../src/ui";
 
 export default function SignIn() {
+  const router = useRouter();
+  const { next, support, job, topic } = useLocalSearchParams<{ next?: string; support?: string; job?: string; topic?: string }>();
   const { auth, startPhone, error: sessionError } = useSession();
   const { t } = useCopy();
   const [phoneMode, setPhoneMode] = useState<PhoneMode>();
@@ -19,6 +23,7 @@ export default function SignIn() {
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   useEffect(() => {
+    if (offlineDemo) return;
     let active = true;
     void api<{ phoneMode: PhoneMode }>("config").then((config) => {
       if (active) setPhoneMode(config.phoneMode);
@@ -38,6 +43,12 @@ export default function SignIn() {
         const digits = phone.replace(/\D/g, "");
         setChallenge(await startPhone(digits.length === 12 ? "+" + digits : "+91" + digits));
       }
+      if (mode !== "phone" || challenge) {
+        if (support === "1") router.replace({ pathname: "/support", params: { job, topic } });
+        else if (next) {
+          try { const choice = JSON.parse(next); if (typeof choice.id === "string") router.replace({ pathname: "/request/[id]", params: choice }); } catch {}
+        }
+      }
     } catch (failure) {
       setError(failure);
     } finally {
@@ -50,6 +61,25 @@ export default function SignIn() {
     setPassword("");
     setMode(next);
   }
+  if (offlineDemo) return <Page>
+    <Heading>{t("Choose a demo account", "डेमो खाता चुनें")}</Heading>
+    <DemoAccounts onChoose={(id) => {
+      if (support === "1") {
+        router.replace({ pathname: "/support", params: { job, topic } });
+        return;
+      }
+      if (id === "customer-demo" && next) {
+        try {
+          const choice = JSON.parse(next);
+          if (typeof choice.id === "string") {
+            router.replace({ pathname: "/request/[id]", params: choice });
+            return;
+          }
+        } catch {}
+      }
+      router.replace("/");
+    }} />
+  </Page>;
   const ready = mode !== "phone" ? Boolean(handle.trim() && password) : challenge ? /^\d{6}$/.test(code) : /^(?:91)?[6-9]\d{9}$/.test(phone.replace(/\D/g, ""));
   return <Page>
     <Image source={heroImage} style={styles.image} resizeMode="cover" accessible={false} />

@@ -1,0 +1,85 @@
+import { randomUUID } from "expo-crypto";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRef, useState } from "react";
+import { offlineDemo, type SupportTicket } from "../src/api";
+import { useCopy } from "../src/language";
+import { useSession } from "../src/session";
+import { Body, Button, Feedback, Field, Guide, Heading, Page, Panel, Row, Section, Tag } from "../src/ui";
+
+export default function CustomerSupport() {
+  const { job, topic } = useLocalSearchParams<{ job?: string; topic?: string }>();
+  const router = useRouter();
+  const { snapshot, token, changeProfile, error: connectionError } = useSession();
+  const { t, task, dateTime } = useCopy();
+  const [category, setCategory] = useState<SupportTicket["category"] | "">(topic === "payment" ? "payment" : job ? "booking" : "");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [sent, setSent] = useState(false);
+  const sending = useRef(false);
+  const submission = useRef<{ id: string; signature: string } | null>(null);
+  const booking = snapshot?.state.requests.find((item) => item.id === job);
+  const tickets = snapshot?.state.supportTickets ?? [];
+  const topics = {
+    booking: t("Booking", "बुकिंग"),
+    payment: t("Payment", "भुगतान"),
+    account: t("Account", "खाता"),
+    other: t("Something else", "कुछ और"),
+  };
+
+  async function submit() {
+    if (sending.current || !category || message.trim().length < 10) return;
+    sending.current = true;
+    setBusy(true);
+    setError(null);
+    setSent(false);
+    const fields = { category, job: booking?.id, message: message.trim() };
+    const signature = JSON.stringify(fields);
+    try {
+      if (submission.current?.signature !== signature) submission.current = { id: randomUUID(), signature };
+      await changeProfile("support-create", { id: submission.current.id, ...fields });
+      submission.current = null;
+      setMessage("");
+      setSent(true);
+    } catch (failure) { setError(failure); }
+    finally { sending.current = false; setBusy(false); }
+  }
+
+  return <Page>
+    <Heading>{t("Customer Support", "ग्राहक सहायता")}</Heading>
+    <Feedback error={connectionError} />
+    <Panel tone="info">
+      <Heading size="small">{t("Send us a message", "हमें संदेश भेजें")}</Heading>
+      {offlineDemo ? <Body small>{t("Offline demo requests are saved on this device.", "ऑफ़लाइन डेमो के अनुरोध इस डिवाइस पर सहेजे जाते हैं।")}</Body>
+        : <Body small>{t("Send a private request and check this page for a reply.", "निजी अनुरोध भेजें और जवाब के लिए यह पेज देखें।")}</Body>}
+      {token ? <>
+        {booking && <Tag>{task(booking.service, booking.scope)}</Tag>}
+        <Body strong>{t("Choose a topic", "विषय चुनें")}</Body>
+        <Row>{(Object.keys(topics) as SupportTicket["category"][]).map((value) => <Button key={value} secondary compact
+          label={topics[value]} selected={category === value} disabled={busy} onPress={() => setCategory(value)} />)}</Row>
+        <Field label={t("How can we help?", "हम कैसे मदद कर सकते हैं?")} multiline maxLength={1000} value={message}
+          onChangeText={(value) => { setMessage(value); setSent(false); }} editable={!busy} />
+        <Button label={t("Send support request", "सहायता अनुरोध भेजें")} disabled={busy || !category || message.trim().length < 10}
+          onPress={() => void submit()} />
+        <Feedback error={error} />
+        {sent && <Guide tone="success">{t("Support request submitted.", "सहायता अनुरोध भेज दिया गया।")}</Guide>}
+      </> : <Button label={t("Sign in to contact support", "सहायता से संपर्क करने के लिए साइन इन करें")}
+        onPress={() => router.push({ pathname: "/sign-in", params: { support: "1", job, topic } })} />}
+    </Panel>
+    {!!tickets.length && <Section>
+      <Heading size="medium">{t("Your support requests", "आपके सहायता अनुरोध")}</Heading>
+      {tickets.map((ticket) => <Panel key={ticket.id}>
+        <Row><Heading size="small">{topics[ticket.category]}</Heading>
+          <Tag tone={ticket.status === "open" ? "warning" : "success"}>{ticket.status === "open" ? t("Awaiting response", "जवाब का इंतज़ार") : t("Resolved", "हल हुआ")}</Tag></Row>
+        <Body small>{dateTime(ticket.created)}</Body>
+        <Body>{ticket.message}</Body>
+        {!!ticket.response && <Section>
+          <Body strong>{t("Reply from Customer Support", "ग्राहक सहायता का जवाब")}</Body>
+          <Body>{ticket.response}</Body>
+        </Section>}
+        {ticket.job && <Button secondary compact label={t("View booking", "बुकिंग देखें")}
+          onPress={() => router.push({ pathname: "/bookings/[id]", params: { id: ticket.job } })} />}
+      </Panel>)}
+    </Section>}
+  </Page>;
+}
