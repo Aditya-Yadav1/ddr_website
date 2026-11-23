@@ -19,7 +19,9 @@ function DemoVisit({ booking, locked, send }: BookingControls) {
   const steps: Partial<Record<Booking["status"], { change: string; label: string }>> = {
     pending: { change: "accept", label: t("Simulate worker acceptance", "डेमो अनुरोध स्वीकार करें") },
     accepted: { change: "arrive", label: t("Simulate worker arrival", "डेमो आगमन दर्ज करें") },
-    arrived: booking.unit === "visit" && !booking.activeQuote
+    arrived: booking.maxPrice !== undefined && !booking.activeQuote
+      ? booking.quotes?.at(-1)?.status === "sent" ? undefined : { change: "quote", label: t("Get demo quote", "डेमो कोटेशन लें") }
+      : booking.unit === "visit" && !booking.activeQuote
       ? { change: "diagnostic-only", label: t("Complete demo diagnostic visit", "डेमो जाँच पूरी करें") }
       : { change: "start", label: t("Start demo work", "डेमो काम शुरू करें") },
     in_progress: booking.interrupted ? undefined : { change: "complete", label: t("Complete demo work", "डेमो काम पूरा करें") },
@@ -55,7 +57,7 @@ export default function BookingDetails() {
   const canChat = activeStatuses.includes(booking.status);
   const canCancel = canChat && booking.status !== "in_progress" && (!worker || booking.status !== "pending");
   const canEstimate = worker && !booking.agreementVersion && ["pending", "accepted"].includes(booking.status);
-  const needsRepairApproval = booking.agreementVersion && booking.unit === "visit" && !booking.activeQuote;
+  const needsRepairApproval = booking.agreementVersion && (booking.maxPrice !== undefined || booking.unit === "visit") && !booking.activeQuote;
   const provider = snapshot.state.profiles.find((person) => person.id === booking.proId);
   const reviewed = snapshot.state.reviewed?.includes(job);
   const paid = canReview(booking);
@@ -64,7 +66,7 @@ export default function BookingDetails() {
     pending: [{ change: "accept", label: t("Accept request", "अनुरोध स्वीकार करें") }, { change: "decline", label: t("Decline request", "अनुरोध अस्वीकार करें") }],
     accepted: [{ change: "depart", label: t("On my way", "मैं रास्ते में हूँ") }, { change: "arrive", label: t("Mark arrival", "पहुँचने की सूचना दें") }],
     en_route: [{ change: "arrive", label: t("Mark arrival", "पहुँचने की सूचना दें") }],
-    arrived: needsRepairApproval ? [{ change: "diagnostic-only", label: t("Close as diagnostic only", "केवल जाँच के रूप में पूरा करें") }]
+    arrived: needsRepairApproval && booking.maxPrice !== undefined ? [] : needsRepairApproval ? [{ change: "diagnostic-only", label: t("Close as diagnostic only", "केवल जाँच के रूप में पूरा करें") }]
       : [{ change: "start", label: t("Start work", "काम शुरू करें") }],
     in_progress: booking.interrupted ? [] : [{ change: "complete", label: t("Complete job", "काम पूरा करें") }],
   };
@@ -94,7 +96,7 @@ export default function BookingDetails() {
     <Feedback error={connectionError} />
     <Feedback error={command.error} />
     {command.uncertain && <Panel tone="warning">
-      <Body>{t("Check whether your last update reached HandyHive.", "जाँचें कि पिछला अपडेट HandyHive तक पहुँचा या नहीं।")}</Body>
+      <Body>{t("Check whether your last update reached ASAAN.", "जाँचें कि पिछला अपडेट ASAAN तक पहुँचा या नहीं।")}</Body>
       <Button disabled={command.busy} label={t("Retry last update", "पिछला अपडेट फिर भेजें")} onPress={async () => {
         if (await command.retry()) setConfirm("");
       }} />
@@ -104,9 +106,9 @@ export default function BookingDetails() {
       <BookingStatus status={booking.status} />
       <Body strong>{worker ? copy.area(booking.area) : booking.proName + " · " + copy.area(booking.area)}</Body>
       <Body>{copy.appointment(booking.appointment, booking.timing)}</Body>
-      <TierPrice price={booking.price} unit={booking.unit} tier={booking.tier} minimumQuantity={booking.minimumQuantity} />
+      <TierPrice price={booking.price} maxPrice={booking.maxPrice} legacy={booking.maxPrice === undefined} unit={booking.unit} tier={booking.tier} minimumQuantity={booking.minimumQuantity} />
       {!!booking.includes && <PlusBenefits includes={booking.includes} includesHi={booking.includesHi} />}
-      <PriceNote unit={booking.unit} />
+      {booking.maxPrice !== undefined && <PriceNote unit={booking.unit} />}
       <Body small>{t("Estimated duration", "अनुमानित अवधि")} · {booking.duration ?? (booking.unit === "hourly" ? 120 : 60)} {t("min", "मिनट")}</Body>
       {booking.status === "pending" && <Body small>{t("Response due by", "जवाब देने की समय सीमा")} · {copy.dateTime(booking.deadline)}</Body>}
     </Panel>
@@ -127,7 +129,7 @@ export default function BookingDetails() {
     </Panel>}
     <BookingReport key={job + "-report"} {...controls} />
     {!booking.demoWorker && needsRepairApproval && booking.status === "arrived" &&
-      <Body notice>{t("Repairs can start after the customer approves a quote.", "ग्राहक के कोटेशन मंज़ूर करने के बाद मरम्मत शुरू हो सकती है।")}</Body>}
+      <Body notice>{t("Work can start after the customer approves a quote.", "ग्राहक के कोटेशन मंज़ूर करने के बाद काम शुरू हो सकती है।")}</Body>}
     <AgreementControls key={booking.id + "-agreement"} {...controls} />
     {!booking.demoWorker && <BookingSafety key={booking.id + "-safety"} {...controls} />}
     {booking.details ? <Panel>

@@ -29,7 +29,7 @@ function Navigation() {
     contentStyle: { backgroundColor: colors.paper },
     headerRight: () => <Brand compact={width < 600} />,
   }}>
-    <Stack.Screen name="index" options={{ title: "HandyHive", headerBackVisible: false,
+    <Stack.Screen name="index" options={{ title: "ASAAN", headerBackVisible: false,
       headerTitle: () => <Brand />, headerRight: () => <LanguageButton /> }} />
     <Stack.Protected guard={Boolean(token)}>
       <Stack.Screen name="customer" options={{ title: t("Customer", "ग्राहक") }} />
@@ -46,7 +46,7 @@ function Navigation() {
       <Stack.Screen name="bookings/[id]/payment" options={{ title: t("Payment", "भुगतान") }} />
       <Stack.Screen name="bookings/[id]/review" options={{ title: t("Review", "रेटिंग") }} />
     </Stack.Protected>
-    <Stack.Screen name="sign-in" options={{ title: "HandyHive", headerTitle: () => <Brand />, headerRight: () => null }} />
+    <Stack.Screen name="sign-in" options={{ title: "ASAAN", headerTitle: () => <Brand />, headerRight: () => null }} />
   </Stack></View>;
 }
 

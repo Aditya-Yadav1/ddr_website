@@ -11,8 +11,8 @@ module.exports = ({ config }) => {
   if (process.env.HANDYHIVE_BUILD_CHANNEL || process.env.EAS_BUILD_PROFILE === "production") {
     if (!offline) resolveEndpoint(process.env.EXPO_PUBLIC_HANDYHIVE_API_URL, "android", false, usb ? "usb" : pilot);
   }
-  return { ...config, ...(pilot && { name: usb ? "HandyHive USB Pilot" : "HandyHive Pilot", scheme: usb ? "handyhive-usb" : "handyhive-pilot" }),
-    ...(offline && { name: "HandyHive Offline Demo", scheme: "handyhive-offline" }), version: offline ? "0.3.0" : "0.2.0",
+  return { ...config, ...(pilot && { name: usb ? "ASAAN USB Pilot" : "ASAAN Pilot", scheme: usb ? "handyhive-usb" : "handyhive-pilot" }),
+    ...(offline && { name: "ASAAN Offline Demo", scheme: "handyhive-offline" }), version: offline ? "0.3.0" : "0.2.0",
     ...(offline && pagesPath && { experiments: { ...config.experiments, baseUrl: pagesPath } }),
     android: { ...config.android, versionCode: offline ? 3 : 2, allowBackup: false,
       ...(offline && { blockedPermissions: [...(config.android.blockedPermissions ?? []), "android.permission.INTERNET"] }) },

@@ -10,11 +10,11 @@ function resolveEndpoint(value, platform, development, pilot = false) {
   if (!endpoint) {
     if (platform === "web") return "/api/v1";
     if (development) return "http://10.0.2.2:4174/api/v1";
-    throw new Error("This app was built without a HandyHive server address. Install a configured build.");
+    throw new Error("This app was built without a ASAAN server address. Install a configured build.");
   }
   const url = new URL(endpoint);
   if (url.username || url.password || url.search || url.hash || url.pathname !== "/api/v1" || !["http:", "https:"].includes(url.protocol)) {
-    throw new Error("The HandyHive server address must end with /api/v1 and contain no credentials or query.");
+    throw new Error("The ASAAN server address must end with /api/v1 and contain no credentials or query.");
   }
   const host = url.hostname.toLowerCase();
   const loopback = host === "localhost" || host.endsWith(".localhost") || host === "[::1]" || /^127\./.test(host) || host === "0.0.0.0" || host === "10.0.2.2";

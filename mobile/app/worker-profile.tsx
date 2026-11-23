@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { upperEstimate } from "../shared/price-range";
 import { tasks } from "../src/catalog";
 import { isPinCode } from "../shared/pin-codes";
 import { normalizeWorkPhone } from "../shared/worker-profile";
@@ -28,6 +29,8 @@ export default function WorkerProfile() {
   const validPins = pinCodes.length > 0 && pinCodes.length <= 20 && pinCodes.every(isPinCode);
   const [years, setYears] = useState(profile ? String(profile.years) : "");
   const [price, setPrice] = useState(profile ? String(profile.price) : "");
+  const [maxPrice, setMaxPrice] = useState(profile ? String(upperEstimate(profile)) : "");
+  const [plusMax, setPlusMax] = useState(profile?.plus ? String(upperEstimate(profile.plus)) : "");
   const [unit, setUnit] = useState<Unit>(profile?.unit ?? "visit");
   const [languages, setLanguages] = useState(profile?.languages?.join(", ") ?? "");
   const [workPhone, setWorkPhone] = useState(profile?.workPhone ?? "");
@@ -67,16 +70,16 @@ export default function WorkerProfile() {
   }
   async function saveProfile() {
     const stored = await submit("profile", {
-      name, bio, bioHi, service, areas, pinCodes, years: Number(years), price: Number(price), unit, credential: profile?.credential || "", specializations: skills,
+      name, bio, bioHi, service, areas, pinCodes, years: Number(years), price: Number(price), maxPrice: Number(maxPrice), unit, credential: profile?.credential || "", specializations: skills,
       languages: languages.split(/[,،]/).map((value) => value.trim()).filter(Boolean),
       workPhone,
-      plus: plus ? { price: Number(plusPrice), includes, includesHi } : null,
+      plus: plus ? { price: Number(plusPrice), maxPrice: Number(plusMax), includes, includesHi } : null,
     });
     if (stored && !profile) router.replace("/worker");
   }
   const profileValid = Boolean(name.trim() && bio.trim() && service && validPins && normalizeWorkPhone(workPhone) !== null
     && areas.length <= 20 && areas.every((area) => area.length >= 2 && /[\p{L}]/u.test(area)) && years !== "" && Number(years) <= 70
-    && Number(price) >= 1 && Number(price) <= 100000 && (!plus || (Number(plusPrice) > Number(price) && Number(plusPrice) <= 100000 && includes.trim())));
+    && Number(maxPrice) > Number(price) && Number(maxPrice) <= 200000 && Number(price) >= 1 && Number(price) <= 100000 && (!plus || (Number(plusPrice) > Number(price) && Number(plusPrice) <= 100000 && Number(plusMax) > Number(plusPrice) && Number(plusMax) <= 200000 && includes.trim())));
   const clocks = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
   const weekday = [
     t("Sun", "रवि"), t("Mon", "सोम"), t("Tue", "मंगल"), t("Wed", "बुध"), t("Thu", "गुरु"), t("Fri", "शुक्र"), t("Sat", "शनि"),
@@ -138,8 +141,9 @@ export default function WorkerProfile() {
         <Button compact secondary selected={unit === "hourly"} label={t("Hourly", "प्रति घंटा")} onPress={() => setUnit("hourly")} />
         <Button compact secondary selected={unit === "fixed"} label={t("Fixed package", "तय पैकेज")} onPress={() => setUnit("fixed")} />
       </Row>
-      <Field label={t("Everyday price (₹)", "एवरीडे की कीमत (₹)")} value={price} onChangeText={(value) => setPrice(amount(value))}
+      <Field label={t("Lower estimate (₹)", "निचला अनुमान (₹)")} value={price} onChangeText={(value) => setPrice(amount(value))}
         keyboardType="number-pad" maxLength={6} />
+      <Field label={t("Upper estimate (₹)", "ऊपरी अनुमान (₹)")} value={maxPrice} onChangeText={v => setMaxPrice(amount(v))} keyboardType="number-pad" maxLength={6} />
       {unit === "hourly" && <Body small>{t("Hourly bookings have a two-hour minimum.", "घंटे वाली बुकिंग कम से कम दो घंटे की होती है।")}</Body>}
     </Panel>
     <Panel tone="warning">
@@ -147,8 +151,9 @@ export default function WorkerProfile() {
       <Body>{t("Offer an optional higher rate with specific extra work included. It uses the same billing unit as Everyday.", "स्पष्ट अतिरिक्त काम के साथ वैकल्पिक ऊँची दर दें। इसका शुल्क एवरीडे की तरह विज़िट, घंटे या पैकेज के हिसाब से होगा।")}</Body>
       <Button secondary compact selected={plus} label={plus ? t("Plus enabled", "प्लस चालू है") : t("Offer Plus", "प्लस दें")} onPress={() => setPlus(!plus)} />
       {plus && <>
-        <Field label={t("Plus price (₹)", "प्लस की कीमत (₹)")} value={plusPrice}
+        <Field label={t("Plus lower estimate (₹)", "प्लस का निचला अनुमान (₹)")} value={plusPrice}
           onChangeText={(value) => setPlusPrice(amount(value))} maxLength={6} keyboardType="number-pad" />
+        <Field label={t("Plus upper estimate (₹)", "प्लस का ऊपरी अनुमान (₹)")} value={plusMax} onChangeText={v => setPlusMax(amount(v))} keyboardType="number-pad" maxLength={6} />
         <Field label={t("Extra work included in Plus", "प्लस में शामिल अतिरिक्त काम")}
           placeholder={examples[service] ? t(...examples[service]) : undefined} value={includes} onChangeText={setIncludes} maxLength={220} multiline />
         <Field label={t("Plus details in Hindi (optional)", "हिन्दी में प्लस की जानकारी (वैकल्पिक)")}

@@ -7,9 +7,9 @@ import { useCopy } from "./language";
 import { useSession } from "./session";
 
 export const colors = {
-  paper: "#FAF7F1", white: "#FFFEFB", panel: "#EAF2E9", ink: "#233C32", muted: "#5E6B62",
-  border: "#E4E5DA", accent: "#286348", deep: "#1B4C35", light: "#FFFFFF",
-  lime: "#F8DCA0", warm: "#FFF0DC", gold: "#805322", error: "#9B3430", orange: "#B64C28", peach: "#FBE8D9",
+  paper: "#FFF8E9", white: "#FFFEFB", panel: "#DFE9FF", ink: "#172846", muted: "#45536A",
+  border: "#E4E5DA", accent: "#2049AD", deep: "#132F76", light: "#FFFFFF",
+  lime: "#F8DCA0", warm: "#FFF0DC", gold: "#733D10", error: "#9B3430", orange: "#B64C28", peach: "#FFBD54",
   blue: "#27567C", blueDark: "#1D4260", blueTint: "#EDF4FA", blueLine: "#CADDEB",
   redTint: "#FBEDEC", redDark: "#792723", neutral: "#F0EEE8", control: "#828D85",
 };
@@ -177,11 +177,11 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   const { t } = useCopy();
   const [focused, setFocused] = useState(false);
   return <Link href="/" dismissTo asChild>
-    <Pressable accessibilityRole="link" accessibilityLabel={t("HandyHive home", "HandyHive होम")}
+    <Pressable accessibilityRole="link" accessibilityLabel={t("ASAAN home", "ASAAN होम")}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       style={StyleSheet.flatten([styles.brand, focused && styles.focused])}>
-      <View aria-hidden style={styles.brandMark}><Text style={styles.brandMarkText}>H</Text></View>
-      {!compact && <Text style={styles.wordmark}>HandyHive</Text>}
+      <View aria-hidden style={styles.brandMark}><Text style={styles.brandMarkText}>A</Text></View>
+      {!compact && <Text style={styles.wordmark}>ASAAN</Text>}
     </Pressable>
   </Link>;
 }
@@ -191,26 +191,21 @@ export function ServiceImage({ service }: { service: string }) {
     ? <Image source={serviceImages[service]} style={styles.serviceImage} resizeMode="cover" accessible={false} /> : null;
 }
 
-export function TierPrice({ price, unit, tier, minimumQuantity }: { price: number; unit: Unit; tier: Tier; minimumQuantity?: number }) {
+export function TierPrice({ price, maxPrice, legacy, unit, tier, minimumQuantity }: { price: number; maxPrice?: number; legacy?: boolean; unit: Unit; tier: Tier; minimumQuantity?: number }) {
   const copy = useCopy();
   const minimum = minimumQuantity ?? (unit === "hourly" ? 2 : 1);
   return <Section>
-    <Row><Tag tone={tier === "plus" ? "warning" : "neutral"}>{copy.tier(tier)}</Tag><Text style={styles.rate}>{copy.rate({ price, unit })}</Text></Row>
+    <Row><Tag tone={tier === "plus" ? "warning" : "neutral"}>{copy.tier(tier)}</Tag><Text style={styles.rate}>{legacy ? copy.money(price) : copy.rate({ price, maxPrice, unit })}</Text></Row>
     {unit === "hourly" && <Body small>{copy.t(
-      copy.money(price * minimum) + " minimum for " + minimum + " hours",
-      minimum + " घंटे के लिए कम से कम " + copy.money(price * minimum),
+      minimum + " hours minimum",
+      "कम से कम " + minimum + " घंटे",
     )}</Body>}
   </Section>;
 }
 
 export function PriceNote({ unit }: { unit: Profile["unit"] }) {
   const { t } = useCopy();
-  const notes: Record<Unit, string> = {
-    visit: t("This is the diagnostic visit fee. Agree on any repair and parts charges with the worker before work starts.", "यह जाँच की विज़िट का शुल्क है। काम शुरू होने से पहले मरम्मत और पुर्ज़ों की कीमत तय करें।"),
-    hourly: t("The final labour cost depends on time worked. Agree on supplies or extra charges before work starts.", "मज़दूरी काम में लगे समय पर निर्भर करती है। काम शुरू होने से पहले सामान और अतिरिक्त शुल्क तय करें।"),
-    fixed: t("This rate covers the agreed package. Confirm any additional work or materials before work starts.", "यह दर तय पैकेज के लिए है। काम शुरू होने से पहले अतिरिक्त काम और सामान की कीमत तय करें।"),
-  };
-  return <Body small>{notes[unit]} {t("Payment is arranged directly with the worker.", "भुगतान सीधे काम करने वाले से तय करें।")}</Body>;
+  return <Body small>{t("This range is an estimate. After seeing the work, your worker sends an itemised quote for you to approve before work starts.", "यह अनुमानित सीमा है। काम देखकर काम करने वाला खर्च का विवरण भेजेगा। आपकी मंज़ूरी के बाद काम शुरू होगा।")}</Body>;
 }
 
 export function BookingCard({ booking, worker }: { booking: Booking; worker?: boolean }) {
@@ -261,7 +256,7 @@ export const styles = StyleSheet.create({
   navText: { fontFamily, fontSize: 12, fontWeight: "600", color: colors.ink, textAlign: "center" },
   brand: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 5, minWidth: 44, minHeight: 44, borderRadius: 10 },
   brandMark: { alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.peach, width: 34, height: 34 },
-  brandMarkText: { fontFamily, fontSize: 22, fontWeight: "700", color: colors.orange },
+  brandMarkText: { fontFamily, fontSize: 22, fontWeight: "800", color: colors.deep },
   wordmark: { fontFamily, color: colors.ink, fontSize: 20, fontWeight: "700" },
   serviceImage: { width: "100%", height: 100, backgroundColor: colors.panel, borderRadius: 11 },
   guide: { flexDirection: "row", alignItems: "flex-start", gap: 11, padding: 15, borderRadius: 15 },

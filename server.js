@@ -185,8 +185,8 @@ function transact(account, action, query, native = false) {
 function snapshot(market, state, query, native) {
   const account = state.account;
   const directory = state.profiles.filter((profile) => profile.published && bookable(account, profile)).map((profile) => {
-    const { id, name, service, bio, bioHi, areas, pinCodes, price, unit, years, languages, hours, immediate, published, plus, specializations, sample } = profile;
-    return { id, name, service, bio, bioHi, areas, pinCodes, price, unit, years, languages, hours, immediate, published, plus, specializations, sample, trust: trust.summary(profile),
+    const { id, name, service, bio, bioHi, areas, pinCodes, price, maxPrice, unit, years, languages, hours, immediate, published, plus, specializations, sample } = profile;
+    return { id, name, service, bio, bioHi, areas, pinCodes, price, maxPrice, unit, years, languages, hours, immediate, published, plus, specializations, sample, trust: trust.summary(profile),
       ...(!native && { credential: profile.credential }) };
   });
   const params = { appointment: query.get("appointment") || "", timing: query.get("timing") || "" };
@@ -499,7 +499,7 @@ function mutate(action, market, state, input, native = false, requestFingerprint
       details = { customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim() };
     }
     const result = market.request({ intent, proId, scope, area: area.trim() || pinCode, pinCode, appointment, timing, contact, requestFingerprint,
-      ...(usesOffer && { tier, expectedPrice, expectedUnit, expectedIncludes, expectedIncludesHi, details, brief, hours }),
+      ...(usesOffer && { tier, expectedPrice, expectedMaxPrice: input.expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, details, brief, hours }),
     });
     if (result.job && (config.production || input.safetyVersion === 1) && !result.job.safetyVersion) {
       const current = market.current();
@@ -515,6 +515,14 @@ function mutate(action, market, state, input, native = false, requestFingerprint
   if (native && action === "demo-worker-step") {
     const worker = state.profiles.find((person) => person.id === job.proId);
     if (!config.previewWorkers || input.role !== "customer" || !worker?.sample) throw failure(404, "Demo visit unavailable.");
+    if (input.change === "quote" && job.maxPrice !== undefined && job.status === "arrived" && !job.activeQuote && job.quotes?.at(-1)?.status !== "sent") {
+      const quantity = job.agreedHours || 1;
+      return agreements.change("quote-send", market, state, job, {
+        role: "pro", version: job.quotes?.at(-1)?.version || 0, minutes: job.duration || 60,
+        items: [{ label: job.scope, amountPaise: Math.round((job.price + job.maxPrice) / 2) * quantity * 100 }],
+        materials: "none", exclusions: "", creditPaise: 0,
+      }, failure);
+    }
     if (!["accept", "arrive", "diagnostic-only", "start", "complete"].includes(input.change)) {
       throw failure(400, "Choose an available demo visit step.");
     }
@@ -700,6 +708,7 @@ function nativeMutation(action, market, state, input) {
   if (action === "request" && (input.brief !== undefined || input.hours !== undefined)) values.push(canonical(input.brief), input.hours);
   if (action === "request" && input.safetyVersion !== undefined) values.push(input.safetyVersion);
   if (action === "request" && input.pinCode !== undefined) values.push({ pinCode: input.pinCode });
+  if (action === "request" && input.expectedMaxPrice !== undefined) values.push({ expectedMaxPrice: input.expectedMaxPrice });
   if (action === "transition" && input.reason !== undefined) values.push(input.reason);
   const fingerprint = sha256(JSON.stringify([action, values]));
   const previous = getOperation.get(state.account.id, operationId);

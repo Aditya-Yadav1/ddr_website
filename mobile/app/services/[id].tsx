@@ -133,7 +133,7 @@ export default function ServiceOptions() {
     </Panel>}
     {found.map((person) => <WorkerPreview key={person.id} person={person} rating={ratings.find((rating) => rating.pro === person.id)}
       service={catalog.services.find((item) => item.id === person.service)?.name ?? person.service}
-      rate={plus && person.plus ? copy.rate({ price: person.plus.price, unit: person.unit }) : undefined}>
+      rate={plus && person.plus ? copy.rate({ price: person.plus.price, maxPrice: person.plus.maxPrice, unit: person.unit }) : undefined}>
       {checkedSlots && !!chooseSlot(checkedSlots[person.id]) &&
         <Body strong>{t("Available", "उपलब्ध")} · {copy.appointment(chooseSlot(checkedSlots[person.id])!)}</Body>}
       <Row>

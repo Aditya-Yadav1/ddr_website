@@ -2,7 +2,7 @@
 
 const workers = [
   ["worker-demo", {
-    name: "Delhi Plumbing Demo", service: "plumbing", areas: ["Saket", "Dwarka", "Lajpat Nagar"], years: 5, price: 449, unit: "visit",
+    name: "Delhi Plumbing Demo", service: "plumbing", areas: ["Saket", "Dwarka", "Lajpat Nagar"], years: 5, price: 449, maxPrice: 700, unit: "visit",
     specializations: ["plumbing-0", "plumbing-1", "plumbing-2"],
     bio: "Demo profile for leaks, drains and fittings. The visit covers diagnosing the problem.",
     bioHi: "लीकेज, नाली और फिटिंग की डेमो प्रोफ़ाइल। विज़िट में समस्या की जाँच शामिल है।",

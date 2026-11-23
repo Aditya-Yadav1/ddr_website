@@ -1,3 +1,4 @@
+import { upperEstimate } from "../shared/price-range";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Platform } from "react-native";
 import { ApiError, errorMessage, type Booking, type Tier, type Unit } from "./api";
@@ -76,7 +77,7 @@ const errors: Record<string, string> = {
   "ARRIVAL_CONFIRMATION_REQUIRED": "काम शुरू होने से पहले ग्राहक सामने से आपकी पहचान जाँचकर पुष्टि करे।",
   "INVALID_SERVER_RESPONSE": "सर्वर ने ऐप की जानकारी के बजाय वेब पेज भेजा। सर्वर का पता जाँचें।",
   "Cannot reach the pilot server. Keep the computer running and connect this phone to the same Wi-Fi.": "पायलट सर्वर से संपर्क नहीं हो पाया। कंप्यूटर चालू रखें और फ़ोन को उसी Wi-Fi से जोड़ें।",
-  "HandyHive took too long to respond. Please try again.": "HandyHive का जवाब आने में अधिक समय लगा। फिर कोशिश करें।",
+  "ASAAN took too long to respond. Please try again.": "ASAAN का जवाब आने में अधिक समय लगा। फिर कोशिश करें।",
   "LOCATION_UNAVAILABLE": "यह काम करने वाला इस पिन कोड में सेवा नहीं देता। इस पते के लिए दूसरा काम करने वाला चुनें।",
   "INVALID_LOCATION": "अपना इलाका और शहर लिखें।",
   "INVALID_PIN_CODE": "मान्य छह अंकों वाला पिन कोड डालें।",
@@ -92,7 +93,7 @@ const errors: Record<string, string> = {
   "TASK_UNAVAILABLE": "यह काम या इलाका अब इस काम करने वाले की सूची में नहीं है।",
   "BOOKING_CHANGED": "बुकिंग की स्थिति बदल गई है। नई स्थिति देखें।",
   "REQUEST_EXPIRED": "अनुरोध की अवधि समाप्त हो गई है।",
-  "Could not reach HandyHive. Check your connection and try again.": "HandyHive से संपर्क नहीं हो पाया। कनेक्शन जाँचें और फिर कोशिश करें।",
+  "Could not reach ASAAN. Check your connection and try again.": "ASAAN से संपर्क नहीं हो पाया। कनेक्शन जाँचें और फिर कोशिश करें।",
   "The username or password is incorrect.": "यूज़रनेम या पासवर्ड गलत है।",
   "This username is taken.": "यह यूज़रनेम पहले से लिया गया है।",
   "Use a username of 3 to 32 letters, numbers, underscores or hyphens and a password of 12 to 128 characters.": "यूज़रनेम में 3 से 32 अंग्रेज़ी अक्षर, अंक, अंडरस्कोर या हाइफ़न रखें। पासवर्ड 12 से 128 अक्षरों का रखें।",
@@ -120,8 +121,11 @@ export function useCopy() {
     return new Intl.NumberFormat(locale, { style: "currency", currency: "INR",
       minimumFractionDigits: Number.isInteger(price) ? 0 : 2, maximumFractionDigits: 2 }).format(price);
   }
-  function rate(offer: { price: number; unit: Unit }) {
-    return money(offer.price) + " / " + t(...units[offer.unit]);
+  function range(low: number, high: number, quantity = 1) {
+    return money(low * quantity) + "–" + money(high * quantity);
+  }
+  function rate(offer: { price: number; maxPrice?: number; unit: Unit }) {
+    return range(offer.price, upperEstimate(offer)) + " / " + t(...units[offer.unit]);
   }
   function dateTime(value: number) {
     return intl({ timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(value) + " IST";
@@ -136,7 +140,7 @@ export function useCopy() {
     return t(message, translation || t(message, "यह काम पूरा नहीं हुआ। जानकारी जाँचें और फिर कोशिश करें।"));
   }
   return {
-    t, language, toggle, intl, money, rate, dateTime, appointment, translateError,
+    t, language, toggle, intl, money, range, rate, dateTime, appointment, translateError,
     area: (place: string) => t(place, areas[place] || place),
     service: (id: string, name: string) => t(name, serviceCopy[id]?.[0] || name),
     serviceNote: (id: string, note: string) => t(note, serviceCopy[id]?.[1] || note),

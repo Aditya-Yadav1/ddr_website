@@ -35,6 +35,8 @@ test("the offline demo persists a two-account visit and never needs a network re
   await work("transition", { change: "arrive" });
   await assert.rejects(() => work("transition", { change: "start" }), { code: "ARRIVAL_CONFIRMATION_REQUIRED" });
   await book("arrival-confirm", { confirmed: true });
+  await assert.rejects(() => work("transition", { change: "start" }), { code: "QUOTE_REQUIRED" });
+  await assert.rejects(() => work("transition", { change: "diagnostic-only" }));
   await work("quote-send", {
     version: 0, items: [{ label: "Demo washer replacement", amountPaise: 30000 }], exclusions: "",
     minutes: 60, materials: "worker", creditPaise: 0,
@@ -43,6 +45,7 @@ test("the offline demo persists a two-account visit and never needs a network re
   await work("transition", { change: "start" });
   const completed = await work("transition", { change: "complete" });
   const total = completed.state.requests[0].bill.totalPaise;
+  assert.equal(total, 30000); // The estimate is never added to the approved quote.
   const review = () => api("review", customer.session.token, { job: id, rating: 4, comment: "Fixed the demo tap." });
   await assert.rejects(review, { code: "PAYMENT_REQUIRED" });
   const report = await book("payment-report", { amountPaise: total, method: "cash", version: 0 });
@@ -82,12 +85,15 @@ test("offline appointment search and duplicate booking retries work for a new vi
   const payload = {
     intent: "second-demo-visit", operationId: "second-operation", safetyVersion: 1,
     proId: "cleaning-demo", appointment, area: "Saket", pinCode: "110017", scope: "Clean a kitchen", tier: "everyday",
-    expectedUnit: "hourly", expectedPrice: 349, expectedIncludes: "", expectedIncludesHi: "",
+    expectedUnit: "hourly", expectedPrice: 349, expectedMaxPrice: 524, expectedIncludes: "", expectedIncludesHi: "",
     contact: "In-app message", customerName: "Demo Customer", address: "12 Sample Lane", hours: 2,
     brief: { problem: "Clean the fictional kitchen", materials: "none", readiness: "unknown" },
   };
+  await assert.rejects(() => api("request", session.token, { ...payload, expectedMaxPrice: 499 }), { code: "OFFER_CHANGED" });
   const added = await api("request", session.token, payload);
   const repeated = await api("request", session.token, payload);
+  assert.equal(added.state.requests[0].basePaise, 0);
+  assert.equal(added.state.requests[0].maxPrice, 524);
   assert.equal(repeated.jobId, added.jobId);
   assert.equal(repeated.state.requests.length, 2);
   assert.equal(repeated.state.requests[0].safetyVersion, 1);

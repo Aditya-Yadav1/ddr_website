@@ -10,7 +10,7 @@ export type Account = { id: string; handle: string };
 export type Hours = { days: number[]; start: string; end: string; buffer: number };
 export type Unit = "visit" | "hourly" | "fixed";
 export type Tier = "everyday" | "plus";
-export type Plus = { price: number; includes: string; includesHi?: string };
+export type Plus = { price: number; maxPrice?: number; includes: string; includesHi?: string };
 export type Profile = {
   sample?: boolean;
   workPhone?: string;
@@ -22,7 +22,7 @@ export type Profile = {
   bioHi?: string;
   areas: string[];
   pinCodes?: string[];
-  price: number;
+  price: number; maxPrice?: number;
   unit: Unit;
   years: number;
   languages?: string[];
@@ -75,7 +75,7 @@ export type Booking = {
   appointment: string;
   timing?: "" | "now";
   tier: Tier;
-  price: number;
+  price: number; maxPrice?: number;
   unit: Unit;
   minimumQuantity: number;
   includes?: string;
@@ -183,18 +183,18 @@ export async function api<T>(action: string, token?: string, body?: Payload): Pr
       redirect: "error",
     });
     if (!response.headers.get("content-type")?.includes("application/json")) {
-      throw new ApiError("The server returned a webpage instead of the HandyHive API. Check the deployment address.", 502, "INVALID_SERVER_RESPONSE");
+      throw new ApiError("The server returned a webpage instead of the ASAAN API. Check the deployment address.", 502, "INVALID_SERVER_RESPONSE");
     }
     const result = await response.json();
     if (!response.ok) throw new ApiError(result.error || "The server could not complete this action.", response.status, result.code);
     return result as T;
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    if (controller.signal.aborted) throw new Error("HandyHive took too long to respond. Please try again.");
+    if (controller.signal.aborted) throw new Error("ASAAN took too long to respond. Please try again.");
     if (usbPilotBuild) throw new Error("Cannot reach the USB pilot server. Connect the phone by USB and run the USB launcher on the computer.");
     throw new Error(pilotBuild
       ? "Cannot reach the pilot server. Keep the computer running and connect this phone to the same Wi-Fi."
-      : "Could not reach HandyHive. Check your connection and try again.");
+      : "Could not reach ASAAN. Check your connection and try again.");
   } finally {
     clearTimeout(timeout);
   }

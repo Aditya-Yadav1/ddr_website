@@ -26,6 +26,9 @@ function validateProfile(market, input, previous, account, native, failure) {
     || !Number.isInteger(years) || years < 0 || years > 70 || !Number.isInteger(price) || price < 1 || price > 100000) {
     throw failure(400, "Check the name, service, areas, experience, description and rate.");
   }
+  const maxPrice = input.maxPrice ?? (previous?.price === price ? previous.maxPrice : undefined);
+  const validUpper = (upper, lower) => upper === undefined || (Number.isInteger(upper) && upper > lower && upper <= 200000);
+  if (!validUpper(maxPrice, price)) throw failure(400, "Enter an upper estimate above the starting rate.");
   let plus = previous?.plus ?? null;
   let workPhone = previous?.workPhone;
   if (native && Object.hasOwn(input, "workPhone")) {
@@ -47,16 +50,16 @@ function validateProfile(market, input, previous, account, native, failure) {
     else {
       const includes = text(offer?.includes, 220);
       const includesHi = text(offer?.includesHi, 220);
-      if (!Number.isInteger(offer?.price) || offer.price <= price || offer.price > 100000 || !includes) {
+      if (!Number.isInteger(offer?.price) || offer.price <= price || offer.price > 100000 || !validUpper(offer.maxPrice, offer.price) || !includes) {
         throw failure(400, "Set a higher Plus rate and describe the extra work included.", "INVALID_PLUS");
       }
-      plus = { price: offer.price, includes, includesHi };
+      plus = { price: offer.price, maxPrice: offer.maxPrice, includes, includesHi };
     }
   } else if (plus && (plus.price <= price || previous.service !== service || previous.unit !== unit)) {
     throw failure(400, "Update your Plus option in the app before changing its service, price or billing unit.", "INVALID_PLUS");
   }
   return {
-    ...previous, id: account.id, name, bio, service, unit, years, price, areas, languages, plus, specializations, workPhone,
+    ...previous, id: account.id, name, bio, service, unit, years, price, maxPrice, areas, languages, plus, specializations, workPhone,
     ...(pins && { pinCodes: [...new Set(pins)] }),
     ...(native && typeof input.bioHi === "string" && { bioHi: text(input.bioHi, 360) }),
     credential: text(input.credential, 100), published: native ? previous?.published ?? true : true, sample: previous?.sample === true,

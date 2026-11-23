@@ -28,7 +28,7 @@ function QuoteSummary({ quote, base }: { quote: Quote; base: number }) {
   };
   return <Section>
     <Row><Body strong>{t("Quote", "कोटेशन")} {quote.version}</Body><Tag>{status[quote.status]}</Tag></Row>
-    <Body>{t("Original agreed charge", "मूल तय शुल्क")} · {money(base / 100)}</Body>
+    {base > 0 && <Body>{t("Original agreed charge", "मूल तय शुल्क")} · {money(base / 100)}</Body>}
     {quote.items.map((item, index) => <Body key={index}>{item.label} · {money(item.amountPaise / 100)}</Body>)}
     {quote.creditPaise > 0 && <Body>{t("Diagnostic fee credit", "जाँच शुल्क की छूट")} · −{money(quote.creditPaise / 100)}</Body>}
     <Body strong>{t("Total", "कुल")} · {money(quote.totalPaise / 100)}</Body>
@@ -72,8 +72,8 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
       not_ready: t("Materials still needed", "सामान अभी चाहिए"),
       unknown: t("Readiness unconfirmed", "सामान तैयार है या नहीं, तय नहीं"),
     }[brief.readiness]}</Body>}
-    <Body strong>{booking.unit === "visit" ? t("Agreed diagnostic charge", "जाँच का तय शुल्क") : t("Original agreed charge", "मूल तय शुल्क")}
-      {" · "}{money(base / 100)}</Body>
+    {base > 0 && <Body strong>{booking.unit === "visit" ? t("Agreed diagnostic charge", "जाँच का तय शुल्क") : t("Original agreed charge", "मूल तय शुल्क")}
+      {" · "}{money(base / 100)}</Body>}
     {booking.agreedHours && <Body small>{booking.agreedHours} {t("agreed hours", "तय घंटे")}</Body>}
     <Body small>{booking.demoWorker
       ? t("Use test checkout after the demo visit.", "डेमो विज़िट के बाद परीक्षण भुगतान करें।")
@@ -91,7 +91,7 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
     {canQuote && !composing && <Button secondary label={latest ? t("Write a revised quote", "नया कोटेशन लिखें") : t("Write a quote", "कोटेशन लिखें")}
       disabled={locked} onPress={() => setComposing(true)} />}
     {composing && canQuote && <Section>
-      <Heading size="small">{t("Quote for repair or extra work", "मरम्मत या अतिरिक्त काम का कोटेशन")}</Heading>
+      <Heading size="small">{t("Itemised work quote", "काम का विस्तृत कोटेशन")}</Heading>
       {items.map((item, index) => <Section key={index}>
         <Field label={t("Work or material", "काम या सामान")} value={item.label} maxLength={120} onChangeText={(label) => updateItem(index, { label })} />
         <Field label={t("Charge (₹)", "शुल्क (₹)")} value={item.amount} maxLength={10} keyboardType="decimal-pad" onChangeText={(amount) => updateItem(index, { amount })} />
@@ -102,9 +102,9 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
       <Field label={t("What’s excluded?", "क्या शामिल नहीं है?")} value={exclusions} maxLength={220} onChangeText={setExclusions} />
       <Field label={t("Updated duration in minutes", "नई अवधि मिनटों में")} value={minutes} maxLength={3} keyboardType="number-pad"
         onChangeText={(value) => setMinutes(value.replace(/\D/g, ""))} />
-      {booking.unit === "visit" && <Field label={t("Credit towards repair (₹)", "मरम्मत पर जाँच शुल्क की छूट (₹)")}
+      {base > 0 && booking.unit === "visit" && <Field label={t("Credit towards repair (₹)", "मरम्मत पर जाँच शुल्क की छूट (₹)")}
         value={credit} maxLength={10} keyboardType="decimal-pad" onChangeText={setCredit} />}
-      <Body strong>{t("Total including original charge", "मूल शुल्क सहित कुल")} · {money(quoteTotal / 100)}</Body>
+      <Body strong>{t("Quote total", "कोटेशन का कुल")} · {money(quoteTotal / 100)}</Body>
       <Row>
         <Button label={t("Send quote for approval", "मंज़ूरी के लिए कोटेशन भेजें")} disabled={locked || !quoteValid} onPress={async () => {
           if (await send("quote-send", { version: latest?.version ?? 0, items: amounts, materials, minutes: Number(minutes), exclusions, creditPaise })) {

@@ -20,8 +20,8 @@ export function TrustDetails({ trust }: { trust?: WorkerTrust | null }) {
       </Section>;
     })}
     {!!trust?.verifiedName && <Body small>{t("Checked name", "जाँचा गया नाम")}: {trust.verifiedName}</Body>}
-    <Body small>{t("Keep messages and quotes in HandyHive. Decline requests for advance payments or one-time passwords. At the door, compare the worker’s photo ID with the checked name in your booking.",
-      "संदेश और कोटेशन HandyHive में रखें। अग्रिम भुगतान या OTP माँगे जाने पर मना करें। दरवाज़े पर फोटो पहचान पत्र का नाम अपनी बुकिंग में जाँचे गए नाम से मिलाएँ।")}</Body>
+    <Body small>{t("Keep messages and quotes in ASAAN. Decline requests for advance payments or one-time passwords. At the door, compare the worker’s photo ID with the checked name in your booking.",
+      "संदेश और कोटेशन ASAAN में रखें। अग्रिम भुगतान या OTP माँगे जाने पर मना करें। दरवाज़े पर फोटो पहचान पत्र का नाम अपनी बुकिंग में जाँचे गए नाम से मिलाएँ।")}</Body>
     <Body small>{t("Checks reduce uncertainty; they do not guarantee conduct. Match the arriving person to their identity and booking before allowing work.", "जाँच से जानकारी मिलती है; व्यवहार की गारंटी नहीं है। काम से पहले आए व्यक्ति की पहचान और बुकिंग मिलाएँ।")}</Body>
   </Section>;
 }

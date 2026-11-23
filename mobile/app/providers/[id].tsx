@@ -70,7 +70,7 @@ export default function WorkerDetails() {
       {!!worker.languages?.length && <Body small>{t("Languages", "भाषाएँ")} · {worker.languages.join(", ")}</Body>}
       {params.scope && <Body strong>{copy.task(service.id, params.scope)}</Body>}
       {params.appointment && <Body small>{copy.appointment(params.appointment)}</Body>}
-      <TierPrice price={plus?.price ?? worker.price} unit={worker.unit} tier={tier} />
+      <TierPrice price={plus?.price ?? worker.price} maxPrice={(plus ?? worker).maxPrice} unit={worker.unit} tier={tier} />
       {plus && <PlusBenefits includes={plus.includes} includesHi={plus.includesHi} />}
       <PriceNote unit={worker.unit} />
     </Panel>
@@ -83,7 +83,7 @@ export default function WorkerDetails() {
       <Feedback error={callError} />
       {appointment ? <Button secondary tone="info" label={t("Open booking for messages", "संदेशों के लिए बुकिंग खोलें")}
         onPress={() => router.push({ pathname: "/bookings/[id]", params: { id: appointment.id } })} />
-        : <Body small>{t("You can message this worker in HandyHive after sending a booking request.", "बुकिंग अनुरोध भेजने के बाद HandyHive में इस काम करने वाले को संदेश भेज सकते हैं।")}</Body>}
+        : <Body small>{t("You can message this worker in ASAAN after sending a booking request.", "बुकिंग अनुरोध भेजने के बाद ASAAN में इस काम करने वाले को संदेश भेज सकते हैं।")}</Body>}
       {!data && <Body small>{t("Loading worker details…", "काम करने वाले की जानकारी लोड हो रही है…")}</Body>}
       <Feedback error={data?.error} />
       {!!data?.error && <Button compact secondary label={t("Reload worker details", "जानकारी फिर लोड करें")} onPress={() => setAttempt((value) => value + 1)} />}

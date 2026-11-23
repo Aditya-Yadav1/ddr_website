@@ -25,7 +25,7 @@ export function WorkerPreview({ person, rating, service, rate, children }: {
 export function Promises() {
   const { t } = useCopy();
   return <Panel tone="info">
-    <Text style={look.eyebrow}>{t("THE HANDYHIVE WAY", "हैंडीहाइव का भरोसा")}</Text>
+    <Text style={look.eyebrow}>{t("THE ASAAN WAY", "आसान का भरोसा")}</Text>
     <Heading size="medium">{t("A little clarity. A lot of care.", "साफ़ जानकारी। पूरे ध्यान से काम।")}</Heading>
     {[
       ["01", t("Know what your visit includes", "विज़िट में क्या शामिल है, जानें"), t("Scope, starting charges and minimums before you request.", "अनुरोध से पहले काम, शुरुआती शुल्क और न्यूनतम कीमत देखें।")],
@@ -47,8 +47,8 @@ export function TaskCard({ task, profiles }: { task: typeof tasks[number]; profi
     <ServiceImage service={task.service} />
     <Body small>{copy.t(task.name, task.hi)}</Body>
     <Heading size="small">{copy.task(task.service, task.task)}</Heading>
-    {first ? <><Body strong>{copy.t("From ", "शुरुआत ")}{copy.money(first.price * (first.unit === "hourly" ? 2 : 1))}</Body>
-      <Body small>{first.unit === "visit" ? copy.t("Diagnostic visit · repairs quoted separately", "जाँच की विज़िट · मरम्मत की कीमत अलग") : first.unit === "hourly" ? copy.t("2-hour minimum", "कम से कम 2 घंटे") : copy.t("Agreed package", "तय पैकेज")}</Body></>
+    {first ? <><Body strong>{copy.rate(first)}</Body>
+      <Body small>{first.unit === "visit" ? copy.t("Diagnostic visit · repairs quoted separately", "जाँच की विज़िट · मरम्मत की कीमत अलग") : first.unit === "hourly" ? copy.t("2-hour minimum", "कम से कम 2 घंटे") : copy.t("Package estimate", "पैकेज का अनुमान")}</Body></>
       : <Body small>{copy.t("Check availability by PIN code", "पिन कोड से उपलब्धता जाँचें")}</Body>}
     <Button secondary label={copy.t("View service →", "सेवा देखें →")} onPress={() => router.push({ pathname: "/tasks/[id]", params: { id: task.id } })} />
   </View>;

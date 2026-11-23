@@ -248,7 +248,7 @@ function createMarketplace(adapter) {
   }
 
   function request({ intent, proId, scope, area, pinCode, appointment = "", timing = "", contact,
-    tier = "everyday", expectedPrice, expectedUnit, expectedIncludes, expectedIncludesHi, requestFingerprint, details, brief, hours }) {
+    tier = "everyday", expectedPrice, expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, requestFingerprint, details, brief, hours }) {
     const state = current();
     const existing = state.requests.find((job) => job.intent === intent
       && (!state.connected || job.customerId === state.account.id)
@@ -270,7 +270,7 @@ function createMarketplace(adapter) {
     }
     const plus = tier === "plus" ? person.plus : null;
     const price = plus?.price ?? person.price;
-    if ((tier === "plus" && !plus) || (expectedPrice !== undefined
+    if ((expectedMaxPrice !== undefined && (!brief || expectedMaxPrice !== require("./price-range").upperEstimate(plus ?? person))) || (tier === "plus" && !plus) || (expectedPrice !== undefined
       && (expectedPrice !== price || expectedUnit !== person.unit
         || expectedIncludes !== (plus?.includes || "") || expectedIncludesHi !== (plus?.includesHi || "")))) {
       return { error: "This option changed. Review the current rate and inclusions before sending.", code: "OFFER_CHANGED" };
@@ -283,7 +283,7 @@ function createMarketplace(adapter) {
       ...(plus && { includes: plus.includes, includesHi: plus.includesHi || "" }),
       ...(requestFingerprint && { requestFingerprint }),
       ...(details && { details }),
-      ...(brief && { agreementVersion: 1, brief, basePaise: price * 100 * (person.unit === "hourly" ? hours : 1),
+      ...(brief && { agreementVersion: 1, brief, ...(expectedMaxPrice !== undefined && { maxPrice: expectedMaxPrice }), basePaise: expectedMaxPrice !== undefined ? 0 : price * 100 * (person.unit === "hourly" ? hours : 1),
         ...(person.unit === "hourly" && { agreedHours: hours, duration: hours * 60 }) }),
       createdAt: now, updatedAt: now, deadline: now + responseWindow, messages: [],
     };
@@ -318,11 +318,11 @@ function createMarketplace(adapter) {
       };
     }
     const now = Date.now();
-    if (action === "diagnostic-only" && (!job.agreementVersion || job.unit !== "visit" || job.activeQuote)) {
+    if (action === "diagnostic-only" && (!job.agreementVersion || job.maxPrice !== undefined || job.unit !== "visit" || job.activeQuote)) {
       return { error: "Diagnostic-only completion is unavailable for this job." };
     }
-    if (job.agreementVersion && action === "start" && job.unit === "visit" && !job.activeQuote) {
-      return { error: "The customer must approve the repair quote before work starts.", code: "QUOTE_REQUIRED" };
+    if (job.agreementVersion && action === "start" && (job.maxPrice !== undefined || job.unit === "visit") && !job.activeQuote) {
+      return { error: "The customer must approve the quote before work starts.", code: "QUOTE_REQUIRED" };
     }
     if (job.agreementVersion && job.interrupted && action === "complete") {
       return { error: "Resolve the work interruption before closing the job." };

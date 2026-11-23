@@ -1,3 +1,4 @@
+import { upperEstimate } from "../../shared/price-range";
 import { SavedAddresses } from "../../src/saved-addresses";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
@@ -18,7 +19,7 @@ import { isPinCode } from "../../shared/pin-codes";
 type Review = {
   safetyVersion: number;
   intent: string; proId: string; scope: string; area: string; pinCode: string; appointment: string; timing: "" | "now"; contact: string;
-  tier: Tier; expectedPrice: number; expectedUnit: Unit; expectedIncludes: string; expectedIncludesHi: string;
+  tier: Tier; expectedPrice: number; expectedMaxPrice: number; expectedUnit: Unit; expectedIncludes: string; expectedIncludesHi: string;
   customerName: string; address: string; landmark: string; notes: string; brief: Brief; hours: number;
 };
 
@@ -120,7 +121,7 @@ export default function RequestAppointment() {
   const valid = reviewIssues.length === 0;
   const reviewedPlus = review?.tier === "plus" ? profile?.plus : null;
   const offerChanged = Boolean(review && (!profile || (review.tier === "plus" && !reviewedPlus)
-    || review.expectedPrice !== (reviewedPlus?.price ?? profile.price) || review.expectedUnit !== profile.unit
+    || review.expectedMaxPrice !== upperEstimate(reviewedPlus ?? profile) || review.expectedPrice !== (reviewedPlus?.price ?? profile.price) || review.expectedUnit !== profile.unit
     || review.expectedIncludes !== (reviewedPlus?.includes || "") || review.expectedIncludesHi !== (reviewedPlus?.includesHi || "")));
   function editReview() {
     setReview(null);
@@ -131,7 +132,7 @@ export default function RequestAppointment() {
     if (!valid || !profile) return;
     setReview({
       safetyVersion: 1, intent: operationId(), proId: profile.id, scope, area: area.trim(), pinCode, appointment, timing: "",
-      contact: "In-app message", tier, expectedPrice: plus?.price ?? profile.price, expectedUnit: profile.unit,
+      contact: "In-app message", tier, expectedPrice: plus?.price ?? profile.price, expectedMaxPrice: upperEstimate(plus ?? profile), expectedUnit: profile.unit,
       expectedIncludes: plus?.includes || "", expectedIncludesHi: plus?.includesHi || "",
       customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim(),
       brief: { ...brief, problem: brief.problem.trim() }, hours: agreedHours,
@@ -151,11 +152,11 @@ export default function RequestAppointment() {
       <Heading size="small">{copy.task(service?.id ?? "", review.scope)}</Heading>
       <Body>{profile?.name}</Body>
       <Body>{copy.appointment(review.appointment, review.timing)}</Body>
-      <TierPrice price={review.expectedPrice} unit={review.expectedUnit} tier={review.tier} />
+      <TierPrice price={review.expectedPrice} maxPrice={review.expectedMaxPrice} unit={review.expectedUnit} tier={review.tier} />
       {!!review.expectedIncludes && <PlusBenefits includes={review.expectedIncludes} includesHi={review.expectedIncludesHi} />}
       <PriceNote unit={review.expectedUnit} />
-      <Body strong>{review.expectedUnit === "visit" ? t("Agreed diagnostic charge", "जाँच का तय शुल्क") : t("Agreed charge", "तय शुल्क")}
-        {" · "}{copy.money(review.expectedPrice * (review.expectedUnit === "hourly" ? review.hours : 1))}</Body>
+      <Body strong>{t("Estimated total", "अनुमानित कुल")}
+        {" · "}{copy.range(review.expectedPrice, review.expectedMaxPrice, review.expectedUnit === "hourly" ? review.hours : 1)}</Body>
       {review.expectedUnit === "hourly" && <Body small>{review.hours} {t("agreed hours", "तय घंटे")}</Body>}
       <Body small>{t("Pay the worker directly at the end of the visit.", "विज़िट के अंत में काम करने वाले को सीधे भुगतान करें।")}</Body>
     </Panel>
@@ -209,7 +210,7 @@ export default function RequestAppointment() {
         <Heading size="small">{t("Agree how many hours to book", "काम के घंटे तय करें")}</Heading>
         <Row>{[2, 3, 4, 5, 6, 7, 8].map((quantity) => <Button key={quantity} compact secondary selected={agreedHours === quantity}
           label={String(quantity)} onPress={() => { setAgreedHours(quantity); setTime(""); }} />)}</Row>
-        <Body strong>{t("Agreed charge", "तय शुल्क")} · {copy.money((plus?.price ?? profile.price) * agreedHours)}</Body>
+        <Body strong>{t("Estimated total", "अनुमानित कुल")} · {copy.range((plus ?? profile).price, upperEstimate(plus ?? profile), agreedHours)}</Body>
       </Panel>}
     </Section>
     <Panel>

@@ -23,7 +23,7 @@ function newDemo() {
   const market = marketplace(data, account(customer));
   const day = market.localAppointment(Date.now() + 86_400_000).slice(0, 10);
   const result = market.request({
-    intent: "starter-demo-visit", proId: "worker-demo", scope: "Fix a leaking tap",
+    intent: "starter-demo-visit", expectedMaxPrice: require("../shared/price-range").upperEstimate(market.pro("worker-demo", market.current())), proId: "worker-demo", scope: "Fix a leaking tap",
     area: "Saket", pinCode: demoAddress.pinCode, appointment: day + "T11:00", contact: "In-app message", hours: 2,
     details: { ...demoAddress, notes: "Fictional visit for the offline demo." },
     brief: { problem: "The kitchen tap drips when closed.", materials: "inspect", readiness: "unknown" },

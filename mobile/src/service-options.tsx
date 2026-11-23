@@ -41,7 +41,7 @@ function OptionCard({ profile, tier, selected, onChange }: {
     hourly: t("Time for the work you agree with the worker.", "काम करने वाले से तय किए गए काम के लिए समय।"),
     fixed: t("The work included in your agreed package.", "आपके तय पैकेज में शामिल काम।"),
   };
-  const delta = copy.rate({ price: price - profile.price, unit: profile.unit });
+
   const label = selected
     ? t(copy.tier(tier) + " selected", copy.tier(tier) + " चुना है")
     : t("Choose " + copy.tier(tier), copy.tier(tier) + " चुनें");
@@ -60,11 +60,11 @@ function OptionCard({ profile, tier, selected, onChange }: {
     </View>
     <View style={styles.content}>
       <View style={styles.priceBlock}>
-        <Text style={styles.price}>{copy.rate({ price, unit: profile.unit })}</Text>
+        <Text style={styles.price}>{copy.rate({ price, maxPrice: (plus ?? profile).maxPrice, unit: profile.unit })}</Text>
         {profile.unit === "hourly" && <Text style={styles.minimum}>
-          {t(copy.money(price * 2) + " minimum · 2 hours", "कम से कम " + copy.money(price * 2) + " · 2 घंटे")}
+          {t("2-hour minimum", "कम से कम 2 घंटे")}
         </Text>}
-        {plus && <Text style={styles.difference}>{t(delta + " more than Everyday", "एवरीडे से " + delta + " अतिरिक्त")}</Text>}
+
       </View>
       <View style={styles.benefit}>
         <Text accessible={false} style={styles.check}>✓</Text>
