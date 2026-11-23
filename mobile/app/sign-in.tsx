@@ -65,7 +65,7 @@ export default function SignIn() {
   }
   const title = role === "worker" ? t("Worker sign-in", "काम करने वाले का साइन इन") : t("Customer sign-in", "ग्राहक साइन इन");
   if (offlineDemo) return <Page><Heading>{title}</Heading>
-    <Panel><Body>{t("Try this workspace with a sample account. Activity is saved in this browser.", "नमूना खाते से आज़माएँ। गतिविधि इस ब्राउज़र में सहेजी जाती है।")}</Body>
+    <Panel><Body>{t("Try this workspace with a sample account.", "नमूना खाते से आज़माएँ।")}</Body>
       <Feedback error={error} /><Button label={t("Sign in to preview", "प्रीव्यू में साइन इन करें")} disabled={busy} onPress={() => void submit()} /></Panel>
   </Page>;
   const ready = mode !== "phone" ? Boolean(handle.trim() && password) : challenge ? /^\d{6}$/.test(code) : /^(?:91)?[6-9]\d{9}$/.test(phone.replace(/\D/g, ""));
