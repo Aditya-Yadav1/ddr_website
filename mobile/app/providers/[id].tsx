@@ -11,7 +11,7 @@ import { SaveWorker } from "../../src/saved-workers";
 import { PlusBenefits } from "../../src/service-options";
 import { useSession } from "../../src/session";
 import { activeStatuses, Body, Button, Feedback, Heading, Page, Panel, PriceNote, RatingScore, Row, Section, TierPrice } from "../../src/ui";
-import { TrustDetails } from "../../src/worker-safety";
+import { TrustDetails, WorkerCheckBadge } from "../../src/worker-safety";
 
 export default function WorkerDetails() {
   const params = useLocalSearchParams<{ id: string; pinCode?: string; scope?: string; appointment?: string; tier?: Tier; area?: string }>();
@@ -65,6 +65,7 @@ export default function WorkerDetails() {
     <Panel>
       <Heading>{worker.name}</Heading>
       <ProviderRating rating={rating} />
+      <WorkerCheckBadge trust={worker.trust} sample={worker.sample} />
       <Body>{copy.service(service.id, service.name)} · {worker.years} {t("years’ experience", "साल का अनुभव")}</Body>
       <Body>{t(worker.bio, worker.bioHi || worker.bio)}</Body>
       {!!worker.languages?.length && <Body small>{t("Languages", "भाषाएँ")} · {worker.languages.join(", ")}</Body>}
@@ -74,6 +75,7 @@ export default function WorkerDetails() {
       {plus && <PlusBenefits includes={plus.includes} includesHi={plus.includesHi} />}
       <PriceNote unit={worker.unit} />
     </Panel>
+    <Panel><TrustDetails trust={worker.trust} /></Panel>
     <Panel>
       <Heading size="small">{t("Contact worker", "काम करने वाले से संपर्क करें")}</Heading>
       {workPhone && <Button secondary tone="info" label={t("Call ", "कॉल करें ") + workPhone} onPress={() => {
@@ -97,7 +99,6 @@ export default function WorkerDetails() {
         {!!review.comment && <Body>{review.comment}</Body>}
       </Section>)}
     </Panel>
-    <Panel><TrustDetails trust={worker.trust} /></Panel>
     {token && <><SaveWorker worker={worker.id} /><ProviderActions worker={worker.id} /></>}
   </Page>;
 }

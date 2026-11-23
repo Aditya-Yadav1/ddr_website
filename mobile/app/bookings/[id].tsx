@@ -1,5 +1,6 @@
 import { canReview } from "../../shared/booking-agreements";
 import { BookingSafety } from "../../src/worker-safety";
+import { VisitProgress, VisitTracking } from "../../src/visit-tracking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import type { Booking, BookingCommand, Payload, Role } from "../../src/api";
@@ -104,6 +105,7 @@ export default function BookingDetails() {
     {guidance[booking.status] && <Guide tone={booking.status === "pending" ? "warning" : booking.status === "accepted" || booking.status === "completed" ? "success" : "info"}>{guidance[booking.status]}</Guide>}
     <Panel>
       <BookingStatus status={booking.status} />
+      <VisitProgress status={booking.status} />
       <Body strong>{worker ? copy.area(booking.area) : booking.proName + " · " + copy.area(booking.area)}</Body>
       <Body>{copy.appointment(booking.appointment, booking.timing)}</Body>
       <TierPrice price={booking.price} maxPrice={booking.maxPrice} legacy={booking.maxPrice === undefined} unit={booking.unit} tier={booking.tier} minimumQuantity={booking.minimumQuantity} />
@@ -112,6 +114,8 @@ export default function BookingDetails() {
       <Body small>{t("Estimated duration", "अनुमानित अवधि")} · {booking.duration ?? (booking.unit === "hourly" ? 120 : 60)} {t("min", "मिनट")}</Body>
       {booking.status === "pending" && <Body small>{t("Response due by", "जवाब देने की समय सीमा")} · {copy.dateTime(booking.deadline)}</Body>}
     </Panel>
+    <VisitTracking key={booking.id + role + "-gps"} booking={booking} role={role} />
+    {!booking.demoWorker && <BookingSafety key={booking.id + "-safety"} {...controls} />}
     {booking.demoWorker && <DemoVisit {...controls} />}
     {!worker && booking.status === "completed" && <Panel tone={paid ? "success" : "warning"}>
       <Heading size="small">{booking.bill
@@ -131,7 +135,6 @@ export default function BookingDetails() {
     {!booking.demoWorker && needsRepairApproval && booking.status === "arrived" &&
       <Body notice>{t("Work can start after the customer approves a quote.", "ग्राहक के कोटेशन मंज़ूर करने के बाद काम शुरू हो सकती है।")}</Body>}
     <AgreementControls key={booking.id + "-agreement"} {...controls} />
-    {!booking.demoWorker && <BookingSafety key={booking.id + "-safety"} {...controls} />}
     {booking.details ? <Panel>
       <Heading size="small">{t("Visit details", "विज़िट की जानकारी")}</Heading>
       <Body strong>{booking.details.customerName}</Body>

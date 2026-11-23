@@ -130,6 +130,52 @@ function booking(proId, appointment = "") {
   };
 }
 
+test("live location belongs to booking participants only and stops at arrival", async (t) => {
+  const { api, register, registerWorker, inDatabase } = await setup(t);
+  const worker = await registerWorker();
+  const customer = await register("gps-customer");
+  const outsider = await register("gps-outsider");
+  const appointment = new Date(Date.now() + 2 * 86400000 + 19800000).toISOString().slice(0, 10) + "T10:00";
+  const created = await api("request", { token: customer.token, body: booking(worker.id, appointment) });
+  assert.equal(created.status, 200, created.body.error);
+  const job = created.body.jobId;
+  const transition = (change) => api("transition", { token: worker.token,
+    body: { operationId: randomUUID(), role: "pro", job, change } });
+  const share = (account, action, fields = {}) => api("visit-location", { token: account.token, body: { job, action, ...fields } });
+  const read = (account) => api("visit-location?job=" + job, { token: account?.token });
+
+  assert.equal((await share(worker, "start")).body.code, "TRIP_CLOSED");
+  assert.equal((await transition("accept")).status, 200);
+  assert.equal((await transition("depart")).status, 200);
+  assert.equal((await read()).status, 401);
+  assert.equal((await read(outsider)).status, 404);
+  assert.equal((await share(outsider, "start")).status, 404);
+
+  const { id } = (await share(worker, "start")).body;
+  const point = { latitude: 28.524321, longitude: 77.20321, accuracy: 22 };
+  assert.ok(id);
+  assert.equal((await share(customer, "update", { id, ...point })).body.code, "SHARING_ENDED");
+  assert.equal((await share(worker, "update", { id, ...point, latitude: 91 })).status, 400);
+  assert.equal((await share(worker, "update", { id, ...point })).status, 200);
+  const incoming = await read(customer);
+  assert.equal(incoming.headers["cache-control"], "no-store");
+  const { receivedAt, ...received } = incoming.body.worker;
+  assert.ok(receivedAt);
+  assert.deepEqual(received, point);
+  assert.deepEqual((await read(outsider)).body.code, "NOT_FOUND");
+  assert.doesNotMatch(inDatabase((db) => db.prepare("SELECT body FROM marketplace").get().body), /28\.524321/);
+
+  const customerShare = (await share(customer, "start")).body.id;
+  assert.equal((await share(customer, "update", { id: customerShare, ...point })).status, 200);
+  assert.equal((await read(worker)).body.customer.accuracy, 22);
+  assert.equal((await share(worker, "stop", { id })).status, 200);
+  assert.equal((await read(customer)).body.worker, undefined);
+  assert.equal((await share(worker, "update", { id, ...point })).body.code, "SHARING_ENDED");
+  assert.equal((await transition("arrive")).status, 200);
+  assert.deepEqual((await read(worker)).body, {});
+  assert.equal((await share(customer, "update", { id: customerShare, ...point })).body.code, "TRIP_CLOSED");
+});
+
 test("arrival confirmation is customer-only, reports stay private, and suspended workers cannot take new bookings", async (t) => {
   const { api, register, registerWorker, inDatabase, stop, start } = await setup(t);
   const worker = await registerWorker();

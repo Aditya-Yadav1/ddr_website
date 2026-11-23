@@ -6,6 +6,7 @@ import { useCopy } from "./language";
 import { Body, Button, colors, fontFamily, Heading, Panel, Row, ServiceImage } from "./ui";
 import { tasks } from "./catalog";
 import { ProviderRating } from "./provider-actions";
+import { WorkerCheckBadge } from "./worker-safety";
 
 export function WorkerPreview({ person, rating, service, rate, children }: {
   person: Profile; rating?: WorkerRating; service: string; rate?: string; children: ReactNode;
@@ -17,6 +18,7 @@ export function WorkerPreview({ person, rating, service, rate, children }: {
       <View style={look.workerName}><Heading size="small">{person.name}</Heading><ProviderRating rating={rating} /></View>
     </Row>
     <Body small>{copy.service(person.service, service)} · {person.years} {copy.t("years’ experience", "साल का अनुभव")}</Body>
+    <WorkerCheckBadge trust={person.trust} sample={person.sample} />
     <Body strong>{rate ?? copy.rate(person)}</Body>
     {children}
   </Panel>;

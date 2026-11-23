@@ -14,16 +14,25 @@ export function TrustDetails({ trust }: { trust?: WorkerTrust | null }) {
     {(Object.keys(labels) as (keyof typeof labels)[]).map((kind) => {
       const check = trust?.checks[kind];
       const verified = check?.status === "verified";
+      const status = verified ? t("Checked", "जाँच हुई") : check?.status === "expired" ? t("Expired", "समय सीमा समाप्त")
+        : check?.status === "changed" ? t("Recheck needed", "दोबारा जाँच ज़रूरी") : t("Not currently verified", "अभी सत्यापित नहीं");
       return <Section key={kind}>
-        <Body small strong>{labels[kind]} · {verified ? t("Checked", "जाँच हुई") : t("Not currently verified", "अभी सत्यापित नहीं")}</Body>
+        <Tag tone={verified ? "success" : "neutral"}>{labels[kind]} · {status}</Tag>
         {verified && check.expiresAt && <Body small>{t("Valid until", "इस तारीख तक मान्य")} {dateTime(check.expiresAt)}</Body>}
       </Section>;
     })}
     {!!trust?.verifiedName && <Body small>{t("Checked name", "जाँचा गया नाम")}: {trust.verifiedName}</Body>}
     <Body small>{t("Keep messages and quotes in ASAAN. Decline requests for advance payments or one-time passwords. At the door, compare the worker’s photo ID with the checked name in your booking.",
       "संदेश और कोटेशन ASAAN में रखें। अग्रिम भुगतान या OTP माँगे जाने पर मना करें। दरवाज़े पर फोटो पहचान पत्र का नाम अपनी बुकिंग में जाँचे गए नाम से मिलाएँ।")}</Body>
-    <Body small>{t("Checks reduce uncertainty; they do not guarantee conduct. Match the arriving person to their identity and booking before allowing work.", "जाँच से जानकारी मिलती है; व्यवहार की गारंटी नहीं है। काम से पहले आए व्यक्ति की पहचान और बुकिंग मिलाएँ।")}</Body>
   </Section>;
+}
+
+export function WorkerCheckBadge({ trust, sample = false }: { trust?: WorkerTrust | null; sample?: boolean }) {
+  const { t } = useCopy();
+  if (sample) return <Tag>{t("Demo profile", "डेमो प्रोफ़ाइल")}</Tag>;
+  if (trust?.eligible) return <Tag tone="success" mark="✓">{t("ASAAN checks current", "ASAAN की जाँच पूरी")}</Tag>;
+  return <Tag tone={trust?.suspended ? "danger" : "warning"}>{trust?.suspended
+    ? t("Bookings suspended", "बुकिंग निलंबित") : t("Checks incomplete", "जाँच अधूरी")}</Tag>;
 }
 
 export function VerificationRequest() {
@@ -61,7 +70,7 @@ export function BookingSafety({ booking, role, locked, send }: SafetyControls) {
     {role === "customer" && <TrustDetails trust={booking.workerTrust} />}
     {booking.arrivalConfirmedAt ? <Tag>{t("Customer confirmed arrival identity", "ग्राहक ने आगमन पर पहचान की पुष्टि की")}</Tag>
       : booking.safetyVersion && booking.status === "arrived" ? <>
-        <Body>{t("The customer must check the arriving worker’s identity before work starts. Never confirm remotely or for a replacement worker.", "काम शुरू होने से पहले ग्राहक आए व्यक्ति की पहचान जाँचे। दूर से या दूसरे व्यक्ति के लिए पुष्टि न करें।")}</Body>
+        <Body>{t("Match the person at your door and their photo ID to the checked name. If anything differs, keep the visit paused and report it.", "दरवाज़े पर आए व्यक्ति और उनके फोटो पहचान पत्र को जाँचे गए नाम से मिलाएँ। कोई अंतर हो तो विज़िट रोकें और शिकायत करें।")}</Body>
         {role === "customer" && <Button disabled={locked} label={t("I checked this worker in person", "मैंने इस व्यक्ति की पहचान सामने से जाँची है")} onPress={() => void send("arrival-confirm", { confirmed: true })} />}
       </> : null}
   </Panel>;

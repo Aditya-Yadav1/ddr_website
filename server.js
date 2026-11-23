@@ -133,6 +133,8 @@ function failure(status, message, code) {
   return Object.assign(new Error(message), { status, code });
 }
 
+const visitLocations = require("./visit-location.js")(failure);
+
 function writeTransaction(action) {
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -662,7 +664,7 @@ const appMime = { ...mime, ".tsv": "text/tab-separated-values; charset=utf-8", "
 const nativeActions = new Set(["discover", "state", "slots", "coverage", "locations", "worker-details", "register", "login", "logout", "phone-start", "phone-verify", "config",
   "save-address", "remove-address", "review", "profile", "hours", "published", "immediate", "block", "remove-block", "request", "transition", "message", "estimate",
   "availability", "save-worker", "remove-worker", "block-worker", "unblock-worker", "report-worker", "health", "verification-request", "arrival-confirm", "safety-report",
-  "checkout-start", "checkout-check", "checkout-demo", "checkout-cancel", "support-create", "demo-worker-step", ...agreements.commands.keys()]);
+  "checkout-start", "checkout-check", "checkout-demo", "checkout-cancel", "support-create", "demo-worker-step", "visit-location", ...agreements.commands.keys()]);
 const operationFields = new Map([
   ["request", ["intent", "proId", "scope", "area", "appointment", "timing", "contact", "tier",
     "expectedPrice", "expectedUnit", "expectedIncludes", "expectedIncludesHi", "customerName", "address", "landmark", "notes"]],
@@ -738,6 +740,21 @@ async function handleApi(req, res, url, native) {
   const token = sessionToken(req, native);
   const readAccount = () => token ? sessions.account.get(sha256(token), Date.now()) || null : null;
   const snapshotFor = (account, action = () => ({})) => transact(account, action, url.searchParams, native);
+
+  if (native && action === "visit-location") {
+    if (!["GET", "POST"].includes(req.method)) throw failure(405, "Method unavailable.");
+    const input = req.method === "POST" ? await readBody(req) : undefined;
+    const account = readAccount();
+    if (!account) throw failure(401, "Sign in to continue.");
+    const jobId = input?.job ?? url.searchParams.get("job");
+    const store = JSON.parse(getStore.get().body);
+    const job = store.requests.find(({ id, customerId, proId }) => id === jobId && [customerId, proId].includes(account.id));
+    if (job?.status === "en_route" && (trust.blocked(job.customerId, job.proId)
+      || !trust.eligible(store.profiles.find(({ id }) => id === job.proId), config.requireVerification))) {
+      job.status = "tracking_paused";
+    }
+    return send(res, 200, visitLocations.access(job, account.id, sha256(token), input));
+  }
 
   if (native && action === "discover" && req.method === "GET") {
     const result = snapshotFor(null);
@@ -861,7 +878,11 @@ async function handleApi(req, res, url, native) {
   if (native && action.startsWith("checkout-")) return send(res, 200, await checkoutAction(readAccount(), action, input, url.searchParams));
   if (action === "phone-start") return send(res, 200, await startPhone(input, req));
   if (action === "logout") {
-    if (token) sessions.revoke.run(sha256(token));
+    if (token) {
+      const session = sha256(token);
+      sessions.revoke.run(session);
+      if (native) visitLocations.revoke(session);
+    }
     if (native) return send(res, 200, { signedOut: true });
     res.setHeader("Set-Cookie", cookieName + "=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     return send(res, 200, snapshotFor(null));

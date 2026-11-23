@@ -3,7 +3,7 @@ import { Image, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "re
 import { useRouter } from "expo-router";
 import { isPinCode } from "../shared/pin-codes";
 import { localPlaces } from "../shared/local-places";
-import { devicePlace, type VisitPlace } from "./device-place";
+import { canUseGps, deviceFix, devicePlace, type VisitPlace } from "./device-place";
 import { searchPostalDirectory } from "./postal-directory";
 import { api, offlineDemo } from "./api";
 import { useCopy } from "./language";
@@ -98,12 +98,13 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
   const [remote, setRemote] = useState<{ term: string; places: VisitPlace[]; failed: boolean } | null>(null);
   const [gps, setGps] = useState<"idle" | "busy" | "denied" | "missing">("idle");
   const [detected, setDetected] = useState<VisitPlace | null>(null);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
   const attempt = useRef(0);
   const term = query.trim();
   const direct = isPinCode(term);
   const searchable = term.length >= 2 && !direct;
   const collapsed = compact && !editing && isPinCode(pinCode);
-  const canLocate = !offlineDemo && (Platform.OS !== "web" || globalThis.isSecureContext);
+  const canLocate = canUseGps() && (!offlineDemo || Platform.OS === "web");
   useEffect(() => () => { attempt.current++; }, []);
   useEffect(() => {
     if (!searchable || collapsed || (offlineDemo && Platform.OS !== "web")) return;
@@ -134,6 +135,7 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
     setManualPin("");
     setRemote(null);
     setDetected(null);
+    setAccuracy(null);
     setGps("idle");
   }
   function choose(place: VisitPlace) {
@@ -151,7 +153,14 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
       if (id === attempt.current) { attempt.current++; setGps("missing"); }
     }, 30000);
     try {
-      const place = await devicePlace();
+      const fix = await deviceFix();
+      if (id !== attempt.current) return;
+      setAccuracy(fix.accuracy);
+      if (offlineDemo || fix.accuracy > 150) {
+        setGps("idle");
+        return;
+      }
+      const place = await devicePlace(fix);
       if (id !== attempt.current) return;
       setDetected(place);
       setGps(place ? "idle" : "missing");
@@ -187,6 +196,12 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
       {canLocate && <Button secondary compact tone="info" disabled={gps === "busy"}
         label={gps === "busy" ? t("Finding your location…", "आपकी जगह खोज रहे हैं…") : t("Use my current location", "मेरी मौजूदा जगह इस्तेमाल करें")}
         onPress={() => void locate()} />}
+      {accuracy !== null && !offlineDemo && accuracy > 150 && <Guide tone="warning">{t(
+        "The location reading is too broad. Try near a window or enter your visit PIN.",
+        "जगह का अनुमान बहुत बड़ा है। खिड़की के पास फिर कोशिश करें या विज़िट का पिन डालें।")}</Guide>}
+      {accuracy !== null && <Body small>{t("Estimated GPS accuracy", "अनुमानित GPS सटीकता")} · ±{Math.ceil(accuracy)} m
+        {offlineDemo && " · " + t("Enter your PIN to choose a postal area in this demo.", "इस डेमो में डाक क्षेत्र चुनने के लिए पिन डालें।")}</Body>}
+      {detected && <Body small>{t("Confirm the detected PIN for the visit address.", "विज़िट के पते का पिन जाँचकर पुष्टि करें।")}</Body>}
       {detected && <Button label={t("Use this location", "यह जगह इस्तेमाल करें") + " · " + [detected.value, detected.pinCode].filter(Boolean).join(" · ")}
         onPress={() => choose(detected)} />}
       {gps === "denied" && <Guide tone="warning">{t("Location access is off. Search for your locality above.", "जगह की अनुमति बंद है। ऊपर अपना इलाका खोजें।")}</Guide>}
