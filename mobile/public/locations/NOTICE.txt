@@ -1,0 +1,1 @@
+Postal locality data from GeoNames (https://www.geonames.org/export/zip/IN.zip), licensed under Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/). HandyHive selected the locality, district, state and postal code fields and omitted records without a six-digit PIN.

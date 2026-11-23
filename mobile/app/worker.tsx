@@ -1,14 +1,16 @@
+import { useState } from "react";
 import { useRouter } from "expo-router";
 import { VerificationRequest } from "../src/worker-safety";
 import { useCopy } from "../src/language";
 import { useSession } from "../src/session";
 import { paymentBalance } from "../src/payment-controls";
-import { activeStatuses, Body, BookingCard, Button, Feedback, Guide, Heading, MainNav, Page, Panel, Row, Section, Tag } from "../src/ui";
+import { activeStatuses, Body, BookingCard, Button, Feedback, Heading, MainNav, Page, Panel, Row, Section, Tag } from "../src/ui";
 
 export default function WorkerJobs() {
   const { snapshot, error } = useSession();
   const router = useRouter();
   const { t, money } = useCopy();
+  const [details, setDetails] = useState(false);
   if (!snapshot) return null;
   const { account, profile, requests } = snapshot.state;
   const jobs = requests.filter((booking) => booking.proId === account.id);
@@ -30,8 +32,6 @@ export default function WorkerJobs() {
   return <Page footer={<MainNav selected="worker" />}>
     <Heading>{t("Your work", "आपका काम")}</Heading>
     <Feedback error={error} />
-    <VerificationRequest />
-    {incoming.length > 0 && <Guide tone="warning">{t("You have new requests waiting. Open one to see the work, price and response deadline.", "आपके लिए नए अनुरोध आए हैं। काम, कीमत और जवाब की समय सीमा देखने के लिए कोई अनुरोध खोलें।")}</Guide>}
     <Panel>
       {profile ? <>
         <Row><Heading size="small">{profile.name}</Heading>
@@ -49,6 +49,13 @@ export default function WorkerJobs() {
         <Button label={t("Create worker profile", "काम की प्रोफ़ाइल बनाएँ")} onPress={() => router.push("/worker-profile")} />
       </>}
     </Panel>
+    {profile && !jobs.length && <Panel><Body>{t("New job requests will appear here.", "काम के नए अनुरोध यहाँ दिखेंगे।")}</Body></Panel>}
+    {groups.filter((group) => group.jobs.length).map((group) => <Section key={group.name}>
+      <Heading size="medium">{group.name}</Heading>
+      {group.jobs.map((job) => <BookingCard key={job.id} booking={job} worker />)}
+    </Section>)}
+    {profile && <Button secondary label={details ? t("Hide business details", "व्यवसाय विवरण छिपाएँ") : t("Verification and earnings", "सत्यापन और कमाई")} onPress={() => setDetails(!details)} />}
+    {details && <><VerificationRequest />
     {jobs.some((job) => job.agreementVersion) && <Panel>
       <Heading size="small">{t("Work and payments", "काम और भुगतान")}</Heading>
       <Body>{t("Confirmed upcoming work", "आगामी पक्का काम")} · {money(agreedUpcoming / 100)}</Body>
@@ -59,10 +66,6 @@ export default function WorkerJobs() {
         label={t("View unpaid bill", "बकाया बिल देखें") + " · " + money(paymentBalance(job).due / 100)}
         onPress={() => router.push({ pathname: "/bookings/[id]", params: { id: job.id } })} />)}
     </Panel>}
-    {profile && !jobs.length && <Panel><Body>{t("New job requests will appear here.", "काम के नए अनुरोध यहाँ दिखेंगे।")}</Body></Panel>}
-    {groups.filter((group) => group.jobs.length).map((group) => <Section key={group.name}>
-      <Heading size="medium">{group.name}</Heading>
-      {group.jobs.map((job) => <BookingCard key={job.id} booking={job} worker />)}
-    </Section>)}
+    </>}
   </Page>;
 }

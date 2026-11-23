@@ -156,17 +156,17 @@ export function LanguageButton() {
 export function MainNav({ selected }: { selected: "discover" | "bookings" | "worker" | "account" }) {
   const router = useRouter();
   const { t } = useCopy();
-  const { token } = useSession();
+  const { role } = useSession();
   const links = [
-    { id: "discover", path: "/", label: t("Explore", "खोजें"), icon: "⌂" },
+    { id: "discover", path: "/customer", label: t("Explore", "खोजें"), icon: "⌂" },
     { id: "bookings", path: "/bookings", label: t("Bookings", "बुकिंग") , icon: "≡" },
     { id: "worker", path: "/worker", label: t("Work", "काम"), icon: "◇" },
     { id: "account", path: "/account", label: t("Account", "खाता"), icon: "◉" },
   ] as const;
   return <View style={styles.nav}>
-    {links.map(({ id, path, label, icon }) => <Pressable key={id} accessibilityRole="tab" accessibilityLabel={label}
+    {links.filter(({ id }) => id === "account" || (role === "worker" ? id === "worker" : id !== "worker")).map(({ id, path, label, icon }) => <Pressable key={id} accessibilityRole="tab" accessibilityLabel={label}
       accessibilityState={{ selected: id === selected }} style={[styles.navItem, id === selected && styles.navSelected]}
-      onPress={() => router.navigate(!token && id !== "discover" ? "/sign-in" : path)}>
+      onPress={() => router.navigate(path)}>
       <Text style={styles.navIcon}>{icon}</Text>
       <Text style={styles.navText}>{label}</Text>
     </Pressable>)}

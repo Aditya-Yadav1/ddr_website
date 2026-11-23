@@ -650,7 +650,7 @@ function send(res, status, body) {
 const staticFiles = new Set(["index.html", "appearance.js", "marketplace.js", "mobile/shared/marketplace.js", "worker-language.js", "walkthrough.js",
   "tracking.js", "contact.js", "live-preview.js", "script.js", "styles.css"]);
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".jpg": "image/jpeg" };
-const appMime = { ...mime, ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
+const appMime = { ...mime, ".tsv": "text/tab-separated-values; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
 const nativeActions = new Set(["discover", "state", "slots", "coverage", "locations", "worker-details", "register", "login", "logout", "phone-start", "phone-verify", "config",
   "save-address", "remove-address", "review", "profile", "hours", "published", "immediate", "block", "remove-block", "request", "transition", "message", "estimate",
   "availability", "save-worker", "remove-worker", "block-worker", "unblock-worker", "report-worker", "health", "verification-request", "arrival-confirm", "safety-report",
@@ -894,7 +894,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (appPreview && req.method === "GET") {
       const pathname = decodeURIComponent(url.pathname);
-      const entry = pathname === "/" || /^\/(?:sign-in|worker(?:-profile)?|account|support|(?:services|tasks|providers)\/[a-z0-9-]+|bookings(?:\/[a-z0-9-]+(?:\/(?:payment|review))?)?|request\/[a-z0-9-]+)\/?$/.test(pathname);
+      const entry = pathname === "/" || /^\/(?:customer|sign-in|worker(?:-profile)?|account|support|(?:services|tasks|providers)\/[a-z0-9-]+|bookings(?:\/[a-z0-9-]+(?:\/(?:payment|review))?)?|request\/[a-z0-9-]+)\/?$/.test(pathname);
       const asset = path.resolve(appPreview, "." + pathname);
       const type = entry ? mime[".html"] : appMime[path.extname(asset)];
       if (!type || (!entry && !asset.startsWith(appPreview + path.sep))) throw failure(404, "Page unavailable.");

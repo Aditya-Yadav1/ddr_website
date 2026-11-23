@@ -17,9 +17,8 @@ function Navigation() {
     return <Page><Feedback error={error} /><Button label={t("Reconnect", "फिर कनेक्ट करें")} onPress={() => void restore()} /></Page>;
   }
   return <View style={{ flex: 1, backgroundColor: colors.paper }}>
-    {offlineDemo && <SafeAreaView edges={["top", "left", "right"]} style={{ backgroundColor: colors.warm }}><View style={{ padding: 10 }}>
-      <Body small strong>{Platform.OS === "web" ? t("Browser demo · fictional data only", "ब्राउज़र डेमो · केवल काल्पनिक डेटा")
-        : t("Offline demo · fictional data only", "ऑफ़लाइन डेमो · केवल काल्पनिक डेटा")}</Body>
+    {offlineDemo && Platform.OS !== "web" && <SafeAreaView edges={["top", "left", "right"]} style={{ backgroundColor: colors.warm }}><View style={{ padding: 10 }}>
+      <Body small strong>{t("Offline demo · fictional data only", "ऑफ़लाइन डेमो · केवल काल्पनिक डेटा")}</Body>
     </View></SafeAreaView>}
     {pilotBuild && <View style={{ padding: 10, backgroundColor: colors.warm }}><Body small>{usbPilotBuild
       ? t("USB pilot · keep the phone connected by cable · test accounts only", "USB पायलट · फ़ोन को केबल से जोड़े रखें · केवल परीक्षण खाते")
@@ -32,12 +31,13 @@ function Navigation() {
   }}>
     <Stack.Screen name="index" options={{ title: "HandyHive", headerBackVisible: false,
       headerTitle: () => <Brand />, headerRight: () => <LanguageButton /> }} />
+    <Stack.Protected guard={Boolean(token)}>
+      <Stack.Screen name="customer" options={{ title: t("Customer", "ग्राहक") }} />
       <Stack.Screen name="services/[id]" options={{ title: t("Service options", "सेवा के विकल्प") }} />
       <Stack.Screen name="tasks/[id]" options={{ title: t("Service details", "सेवा की जानकारी") }} />
       <Stack.Screen name="providers/[id]" options={{ title: t("Worker details", "काम करने वाले की जानकारी") }} />
       <Stack.Screen name="request/[id]" options={{ title: t("Request a service", "सेवा का अनुरोध") }} />
       <Stack.Screen name="support" options={{ title: t("Help", "सहायता") }} />
-    <Stack.Protected guard={Boolean(token)}>
       <Stack.Screen name="worker" options={{ title: t("Worker workspace", "काम की जगह") }} />
       <Stack.Screen name="worker-profile" options={{ title: t("Worker profile", "काम की प्रोफ़ाइल") }} />
       <Stack.Screen name="account" options={{ title: t("Account", "खाता") }} />

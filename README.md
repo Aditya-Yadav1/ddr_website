@@ -4,11 +4,17 @@ The website and Android/iOS app use the same Expo and React Native screens in `m
 
 ## Open HandyHive on your phone
 
+### Connect production hosting
+
+[Deploy HandyHive to Render](https://render.com/deploy?repo=https://github.com/Aditya-Yadav1/ddr_website). Review the paid Starter service and its 1 GB persistent disk before approving. Enter your Twilio API key SID, API secret and Verify service SID in the three secret fields. The Docker build serves the website and API at one HTTPS origin. SQLite stores accounts and bookings in the attached disk.
+
+After deployment, open the Render URL on your phone. Choose **Customer** or **Worker** and sign in by SMS. Workers must complete the existing verification process and publish their service PINs before customers can book them. See the [operator guide](SECURITY_AND_LAUNCH.md). To check a deployment, set `EXPO_PUBLIC_HANDYHIVE_API_URL` to its HTTPS origin followed by `/api/v1` and run `node scripts/check-api.js`.
+
 ### GitHub Pages browser demo
 
 The [Pages deployment workflow](.github/workflows/pages.yml) publishes the browser demo. In the GitHub repository, set **Settings → Pages → Source** to **GitHub Actions**, then run **Publish HandyHive browser demo** from **Actions**. Later pushes to `main` that change the app will publish automatically. Open the deployment URL from the workflow run on your phone.
 
-Choose **Customer** on Explore to open the sample booking. Switch to **Plumber** to accept the visit from Work, then switch back to the customer to confirm arrival. Use fictional details. Bookings, messages and simulated payment records stay in the browser where you create them. Hosting live accounts and shared bookings requires the project’s [Node API and persistent storage](SECURITY_AND_LAUNCH.md#permanent-hosting).
+Choose **Customer**, sign in to the preview, and select a locality or PIN. Bookings contains the sample visit. Use the HandyHive home link to choose **Worker** and see the visit from the other side. The preview stores fictional activity in the current browser.
 
 ### Connected preview on the same Wi-Fi
 

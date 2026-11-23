@@ -129,7 +129,7 @@ export default function ServiceOptions() {
       <Heading size="small">{t("Let’s try another way", "चलिए, दूसरा तरीका देखते हैं")}</Heading>
       {validPin && <Body>{t("No workers match these choices. Try clearing your filters.", "इन विकल्पों के लिए कोई नहीं मिला। खोज के फ़िल्टर हटाकर देखें।")}</Body>}
       <Button secondary label={t("Clear filters", "फ़िल्टर हटाएँ")} onPress={() => { setQuery(""); setBudget(""); setPlus(false); setDay(""); setClock(""); }} />
-      <Button secondary label={t("Choose another service", "दूसरी सेवा चुनें")} onPress={() => router.navigate("/")} />
+      <Button secondary label={t("Choose another service", "दूसरी सेवा चुनें")} onPress={() => router.navigate("/customer")} />
     </Panel>}
     {found.map((person) => <WorkerPreview key={person.id} person={person} rating={ratings.find((rating) => rating.pro === person.id)}
       service={catalog.services.find((item) => item.id === person.service)?.name ?? person.service}

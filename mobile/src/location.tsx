@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { isPinCode } from "../shared/pin-codes";
 import { localPlaces } from "../shared/local-places";
 import { devicePlace, type VisitPlace } from "./device-place";
+import { searchPostalDirectory } from "./postal-directory";
 import { api, offlineDemo } from "./api";
 import { useCopy } from "./language";
 import { useSession } from "./session";
@@ -27,7 +28,7 @@ const storageKey = "handyhive-service-pin";
 export function LocationProvider({ children }: { children: ReactNode }) {
   const { token, snapshot } = useSession();
   const [{ pinCode, value: locality }, updatePlace] = useState<VisitPlace>(
-    offlineDemo ? { pinCode: "110017", value: "Saket, Delhi" } : { pinCode: "", value: "" });
+    { pinCode: "", value: "" });
   const [result, setResult] = useState<Coverage | null>(null);
   const [attempt, setAttempt] = useState(0);
   const edited = useRef(false);
@@ -92,6 +93,8 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
   const { t } = useCopy();
   const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState("");
+  const [manual, setManual] = useState(false);
+  const [manualPin, setManualPin] = useState("");
   const [remote, setRemote] = useState<{ term: string; places: VisitPlace[]; failed: boolean } | null>(null);
   const [gps, setGps] = useState<"idle" | "busy" | "denied" | "missing">("idle");
   const [detected, setDetected] = useState<VisitPlace | null>(null);
@@ -103,13 +106,17 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
   const canLocate = !offlineDemo && (Platform.OS !== "web" || globalThis.isSecureContext);
   useEffect(() => () => { attempt.current++; }, []);
   useEffect(() => {
-    if (!searchable || collapsed || offlineDemo) return;
+    if (!searchable || collapsed || (offlineDemo && Platform.OS !== "web")) return;
     let active = true;
     const timer = setTimeout(async () => {
       try {
-        const result = await api<{ suggestions: VisitPlace[]; unavailable: boolean }>(
-          "locations?" + new URLSearchParams({ q: term, postal: "1" }));
-        if (active) setRemote({ term, places: result.suggestions.filter((place) => isPinCode(place.pinCode)), failed: result.unavailable });
+        const searches: Promise<VisitPlace[]>[] = [];
+        if (Platform.OS === "web") searches.push(searchPostalDirectory(term));
+        if (!offlineDemo) searches.push(api<{ suggestions: VisitPlace[] }>(
+          "locations?" + new URLSearchParams({ q: term, postal: "1" })).then((result) => result.suggestions));
+        const results = await Promise.allSettled(searches);
+        const places = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+        if (active) setRemote({ term, places: places.filter((place) => isPinCode(place.pinCode)), failed: results.every((result) => result.status === "rejected") });
       } catch {
         if (active) setRemote({ term, places: [], failed: true });
       }
@@ -123,6 +130,8 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
   function reset(value = "") {
     attempt.current++;
     setQuery(value);
+    setManual(false);
+    setManualPin("");
     setRemote(null);
     setDetected(null);
     setGps("idle");
@@ -158,16 +167,23 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
       <Text style={look.change}>{t("Change", "बदलें")}</Text>
     </Pressable> : <>
       <Field label={t("Search your location", "अपनी जगह खोजें")} value={query}
-        placeholder={t("Locality, sector or landmark", "इलाका, सेक्टर या लैंडमार्क")} onChangeText={reset}
+        placeholder={t("Town, neighbourhood or PIN code", "इलाका, सेक्टर या लैंडमार्क")} onChangeText={reset}
         autoFocus={compact && editing} autoCapitalize="words" maxLength={100}
         onSubmitEditing={() => { if (direct) choose({ value: "", pinCode: term }); }} />
       {direct && <Button label={t("Find workers", "काम करने वाले खोजें") + " · " + term} onPress={() => choose({ value: "", pinCode: term })} />}
       {choices.map((place) => <Button secondary tone="info" key={place.value + place.pinCode}
         label={place.value + " · " + place.pinCode} onPress={() => choose(place)} />)}
-      {searchable && !choices.length && <Body small>{!result && !offlineDemo
+      {searchable && !choices.length && <Body small>{!result && (!offlineDemo || Platform.OS === "web")
         ? t("Searching places…", "जगह खोज रहे हैं…")
         : result?.failed ? t("Location search is unavailable. Try a known locality or enter your PIN.", "अभी जगह खोज नहीं पाए। इलाका या पिन कोड डालें।")
         : t("No matching postal area. Try a nearby landmark, sector or PIN.", "डाक क्षेत्र नहीं मिला। पास का लैंडमार्क, सेक्टर या पिन आज़माएँ।")}</Body>}
+      {Platform.OS === "web" && searchable && <Body small>GeoNames · CC BY 4.0</Body>}
+      {searchable && !/^\d+$/.test(term) && (manual ? <>
+        <Field label={t("PIN code for this location", "इस जगह का पिन कोड")} value={manualPin} keyboardType="number-pad"
+          maxLength={6} onChangeText={(value) => setManualPin(value.replace(/\D/g, ""))} />
+        <Button label={t("Use this location", "यह जगह इस्तेमाल करें")} disabled={!isPinCode(manualPin)}
+          onPress={() => choose({ value: term, pinCode: manualPin })} />
+      </> : <Button secondary compact label={t("Enter PIN for ", "पिन डालें · ") + term} onPress={() => setManual(true)} />)}
       {canLocate && <Button secondary compact tone="info" disabled={gps === "busy"}
         label={gps === "busy" ? t("Finding your location…", "आपकी जगह खोज रहे हैं…") : t("Use my current location", "मेरी मौजूदा जगह इस्तेमाल करें")}
         onPress={() => void locate()} />}
@@ -207,7 +223,7 @@ export function VisitPin({ pinCode, change = false }: { pinCode: string; change?
     <Tag tone="info">{t("Visit PIN", "विज़िट का पिन")} {pinCode}</Tag>
     {change && <Button compact secondary label={t("Change location", "जगह बदलें")} onPress={() => {
       setPinCode("");
-      router.dismissTo("/");
+      router.dismissTo("/customer");
     }} />}
   </Row>;
 }

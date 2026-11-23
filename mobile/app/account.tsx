@@ -3,14 +3,12 @@ import { SavedWorkers } from "../src/saved-workers";
 import { ProviderSafetyHistory } from "../src/provider-actions";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { offlineDemo } from "../src/api";
-import { DemoAccounts } from "../src/demo-accounts";
 import { useCopy } from "../src/language";
 import { useSession } from "../src/session";
 import { Body, Button, Feedback, Heading, MainNav, Page, Panel, Section } from "../src/ui";
 
 export default function Account() {
-  const { snapshot, logout, error: connectionError } = useSession();
+  const { snapshot, logout, role, error: connectionError } = useSession();
   const copy = useCopy();
   const { t } = copy;
   const router = useRouter();
@@ -30,10 +28,7 @@ export default function Account() {
     <Heading>{t("Your account", "आपका खाता")}</Heading>
     <Feedback error={connectionError} />
     <Button secondary tone="info" label={t("Customer Support", "ग्राहक सहायता")} onPress={() => router.push("/support")} />
-    {offlineDemo && <DemoAccounts />}
-    <SavedAddresses />
-    <SavedWorkers />
-    <ProviderSafetyHistory />
+    {role === "customer" && <><SavedAddresses /><SavedWorkers /><ProviderSafetyHistory /></>}
     {!!snapshot?.state.bookingUpdates?.length && <Section>
       <Heading size="medium">{t("Booking updates", "बुकिंग के अपडेट")}</Heading>
       {snapshot.state.bookingUpdates.map((update) => {

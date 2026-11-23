@@ -1,15 +1,13 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Image, StyleSheet } from "react-native";
 import { api, offlineDemo, type PhoneChallenge, type PhoneMode } from "../src/api";
-import { DemoAccounts } from "../src/demo-accounts";
 import { useCopy } from "../src/language";
 import { useSession } from "../src/session";
-import { Body, Button, colors, Feedback, Field, Heading, heroImage, Page, Panel, Row, Section } from "../src/ui";
+import { Body, Button, Feedback, Field, Heading, Page, Panel, Row } from "../src/ui";
 
 export default function SignIn() {
   const router = useRouter();
-  const { next, support, job, topic } = useLocalSearchParams<{ next?: string; support?: string; job?: string; topic?: string }>();
+  const { next, support, job, topic, role } = useLocalSearchParams<{ role?: string; next?: string; support?: string; job?: string; topic?: string }>();
   const { auth, startPhone, error: sessionError } = useSession();
   const { t } = useCopy();
   const [phoneMode, setPhoneMode] = useState<PhoneMode>();
@@ -37,17 +35,18 @@ export default function SignIn() {
     setBusy(true);
     setError(null);
     try {
-      if (mode !== "phone") await auth(mode, { handle, password });
+      if (offlineDemo) await auth("demo-sign-in", { account: role === "worker" ? "worker-demo" : "customer-demo" });
+      else if (mode !== "phone") await auth(mode, { handle, password });
       else if (challenge) await auth("phone-verify", { challenge: challenge.challenge, code });
       else {
         const digits = phone.replace(/\D/g, "");
         setChallenge(await startPhone(digits.length === 12 ? "+" + digits : "+91" + digits));
       }
-      if (mode !== "phone" || challenge) {
+      if (offlineDemo || mode !== "phone" || challenge) {
         if (support === "1") router.replace({ pathname: "/support", params: { job, topic } });
         else if (next) {
           try { const choice = JSON.parse(next); if (typeof choice.id === "string") router.replace({ pathname: "/request/[id]", params: choice }); } catch {}
-        }
+        } else router.replace(role === "worker" ? "/worker" : "/customer");
       }
     } catch (failure) {
       setError(failure);
@@ -61,32 +60,14 @@ export default function SignIn() {
     setPassword("");
     setMode(next);
   }
-  if (offlineDemo) return <Page>
-    <Heading>{t("Choose a demo account", "डेमो खाता चुनें")}</Heading>
-    <DemoAccounts onChoose={(id) => {
-      if (support === "1") {
-        router.replace({ pathname: "/support", params: { job, topic } });
-        return;
-      }
-      if (id === "customer-demo" && next) {
-        try {
-          const choice = JSON.parse(next);
-          if (typeof choice.id === "string") {
-            router.replace({ pathname: "/request/[id]", params: choice });
-            return;
-          }
-        } catch {}
-      }
-      router.replace("/");
-    }} />
+  const title = role === "worker" ? t("Worker sign-in", "काम करने वाले का साइन इन") : t("Customer sign-in", "ग्राहक साइन इन");
+  if (offlineDemo) return <Page><Heading>{title}</Heading>
+    <Panel><Body>{t("Try this workspace with a sample account. Activity is saved in this browser.", "नमूना खाते से आज़माएँ। गतिविधि इस ब्राउज़र में सहेजी जाती है।")}</Body>
+      <Feedback error={error} /><Button label={t("Sign in to preview", "प्रीव्यू में साइन इन करें")} disabled={busy} onPress={() => void submit()} /></Panel>
   </Page>;
   const ready = mode !== "phone" ? Boolean(handle.trim() && password) : challenge ? /^\d{6}$/.test(code) : /^(?:91)?[6-9]\d{9}$/.test(phone.replace(/\D/g, ""));
   return <Page>
-    <Image source={heroImage} style={styles.image} resizeMode="cover" accessible={false} />
-    <Section>
-      <Heading>{t("Good to have you here.", "आपका स्वागत है।")}</Heading>
-      <Body>{t("Let’s find some help for that job at home. You’ll see the starting price before you book.", "घर के काम के लिए मदद खोजते हैं। बुकिंग से पहले शुरुआती कीमत दिखेगी।")}</Body>
-    </Section>
+    <Heading>{title}</Heading>
     <Panel>
       <Heading size="small">{mode === "phone" ? (challenge ? t("Almost there. Your code?", "बस एक कदम और। आपका कोड?") : t("Let’s get you signed in", "चलिए, साइन इन करें"))
         : mode === "register" ? t("Create a preview account", "प्रीव्यू खाता बनाएँ") : t("Preview account sign-in", "प्रीव्यू खाते में साइन इन")}</Heading>
@@ -123,7 +104,3 @@ export default function SignIn() {
     </Row>}
   </Page>;
 }
-
-const styles = StyleSheet.create({
-  image: { width: "100%", maxWidth: 420, aspectRatio: 16 / 9, alignSelf: "center", borderRadius: 18, backgroundColor: colors.panel },
-});

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: handyhive
+    runtime: docker
+    plan: starter
+    autoDeployTrigger: off
+    healthCheckPath: /api/v1/health
+    disk:
+      name: bookings
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: "4174"
+      - key: HANDYHIVE_PUBLIC_ORIGIN
+        fromService:
+          type: web
+          name: handyhive
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: TWILIO_API_KEY
+        sync: false
+      - key: TWILIO_API_SECRET
+        sync: false
+      - key: TWILIO_VERIFY_SERVICE_SID
+        sync: false

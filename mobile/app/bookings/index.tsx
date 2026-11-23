@@ -18,7 +18,7 @@ export default function Bookings() {
     {!bookings.length && <Panel>
       <Heading size="small">{t("No bookings yet", "अभी कोई बुकिंग नहीं")}</Heading>
       <Body>{t("Requests and past appointments will appear here.", "आपके अनुरोध और पिछली बुकिंग यहाँ दिखेंगी।")}</Body>
-      <Button label={t("Explore services", "सेवाएँ खोजें")} onPress={() => router.navigate("/")} />
+      <Button label={t("Explore services", "सेवाएँ खोजें")} onPress={() => router.navigate("/customer")} />
     </Panel>}
     {!!active.length && <Section>
       <Heading size="medium">{t("Open bookings", "चालू बुकिंग")}</Heading>

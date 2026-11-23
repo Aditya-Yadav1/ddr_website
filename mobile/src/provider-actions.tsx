@@ -82,7 +82,7 @@ export function ProviderActions({ worker }: { worker: string }) {
       </Section>}
       <Feedback error={error} />
       <Button secondary tone="info" label={t("Contact Customer Support", "ग्राहक सहायता से संपर्क करें")} onPress={() => router.push("/support")} />
-      <BlockProvider worker={worker} onBlocked={() => router.replace("/")} />
+      <BlockProvider worker={worker} onBlocked={() => router.replace("/customer")} />
     </Panel>}
   </Section>;
 }

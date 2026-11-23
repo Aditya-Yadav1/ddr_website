@@ -6,6 +6,8 @@ import { readStored, removeStored, writeStored } from "./storage";
 const key = offlineDemo ? "handyhive-offline-session" : "handyhive-session";
 type AuthCommand = "login" | "register" | "phone-verify" | "demo-sign-in";
 type Session = {
+  role: "customer" | "worker";
+  chooseRole: (role: "customer" | "worker") => Promise<void>;
   token: string | null;
   snapshot: Snapshot | null;
   error: unknown;
@@ -23,6 +25,11 @@ const SessionContext = createContext<Session | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const active = useRef<string | null>(null);
+  const [role, setRole] = useState<"customer" | "worker">("customer");
+  async function chooseRole(value: "customer" | "worker") {
+    await writeStored(key + "-role", value);
+    setRole(value);
+  }
   const polling = useRef<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -69,6 +76,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const credential = await readStored(key);
+      setRole(await readStored(key + "-role") === "worker" ? "worker" : "customer");
       active.current = credential;
       setToken(credential);
       if (credential) await refresh(credential);
@@ -145,7 +153,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return <SessionContext.Provider value={{
-    token, snapshot, error, loading, restore, refresh, auth, logout, checkSlots,
+    role, chooseRole, token, snapshot, error, loading, restore, refresh, auth, logout, checkSlots,
     startPhone: (phone) => api<PhoneChallenge>("phone-start", undefined, { phone }),
     changeBooking: async (action, body) => (await mutate(action, body)).jobId,
     changeProfile: async (action, body) => { await mutate(action, body); },

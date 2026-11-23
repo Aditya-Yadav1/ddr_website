@@ -181,7 +181,7 @@ export default function RequestAppointment() {
       <Heading size="small">{t("This service option changed", "सेवा के इस विकल्प में बदलाव हुआ है")}</Heading>
       <Body>{t("Review the current rate and included work before sending your request.", "अनुरोध भेजने से पहले नई दर और शामिल काम देखें।")}</Body>
       {profile ? <Button secondary label={t("Review updated service options", "सेवा के नए विकल्प देखें")} disabled={busy} onPress={editReview} />
-        : <Button secondary label={t("Explore services", "सेवाएँ खोजें")} disabled={busy} onPress={() => router.navigate("/")} />}
+        : <Button secondary label={t("Explore services", "सेवाएँ खोजें")} disabled={busy} onPress={() => router.navigate("/customer")} />}
     </Panel>}
     {uncertain && <Body small>{t("The response did not arrive. Retry this same request to check whether it was sent.", "जवाब नहीं मिला। यही अनुरोध फिर भेजकर जाँचें कि वह पहुँचा या नहीं।")}</Body>}
     <Button label={busy ? t("Sending…", "भेज रहे हैं…") : uncertain ? t("Retry request", "अनुरोध फिर भेजें") : t("Send request", "अनुरोध भेजें")}
