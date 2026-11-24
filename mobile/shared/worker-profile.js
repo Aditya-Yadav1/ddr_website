@@ -2,6 +2,7 @@
 
 const { isPinCode } = require("./pin-codes");
 const pilot = require("./pilot-pricing");
+const { areaPoint } = require("./coverage-distance");
 
 function normalizeWorkPhone(value) {
   if (typeof value !== "string" || value.length > 24) return null;
@@ -20,6 +21,12 @@ function validateProfile(market, input, previous, account, native, failure) {
   const pins = input.pinCodes ?? (!native ? previous?.pinCodes : undefined);
   if ((native || pins !== undefined) && (!Array.isArray(pins) || !pins.length || pins.length > 20 || !pins.every(isPinCode))) {
     throw failure(400, "Enter 1 to 20 valid six-digit service PIN codes.", "INVALID_PIN_CODE");
+  }
+  const { serviceBasePin, serviceRadiusKm, serviceBasePoint } = input;
+  if (native && ((serviceBasePin !== undefined && !pins.includes(serviceBasePin))
+    || (serviceRadiusKm !== undefined && (!Number.isInteger(serviceRadiusKm) || serviceRadiusKm < 10 || serviceRadiusKm > 15))
+    || (serviceBasePoint !== undefined && serviceBasePoint !== null && !areaPoint(serviceBasePoint)))) {
+    throw failure(400, "Choose a listed PIN for your base and a radius from 10 to 15 km.", "INVALID_LOCATION");
   }
   const languages = Array.isArray(input.languages) ? input.languages.slice(0, 10).map((value) => text(value, 30)).filter(Boolean) : [];
   if (!name || !bio || !market.service(service) || !Object.hasOwn(market.units, unit)
@@ -74,6 +81,12 @@ function validateProfile(market, input, previous, account, native, failure) {
   return {
     ...previous, id: account.id, name, bio, service, unit, years, price, maxPrice, areas, languages, plus, specializations, workPhone, pilotOffers,
     ...(pins && { pinCodes: [...new Set(pins)] }),
+    ...(native && {
+      serviceBasePin: serviceBasePin ?? (pins.includes(previous?.serviceBasePin) ? previous.serviceBasePin : pins[0]),
+      serviceRadiusKm: serviceRadiusKm ?? previous?.serviceRadiusKm,
+      serviceBasePoint: serviceBasePoint !== undefined ? areaPoint(serviceBasePoint, 2)
+        : pins.includes(previous?.serviceBasePin) && (serviceBasePin === undefined || serviceBasePin === previous?.serviceBasePin) ? previous?.serviceBasePoint : null,
+    }),
     ...(native && typeof input.bioHi === "string" && { bioHi: text(input.bioHi, 360) }),
     credential: text(input.credential, 100), published: native ? previous?.published ?? true : true, sample: previous?.sample === true,
     hours: previous?.hours || market.defaultHours, immediate: previous?.immediate ?? false,

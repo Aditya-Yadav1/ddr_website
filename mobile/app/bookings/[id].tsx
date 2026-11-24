@@ -114,6 +114,8 @@ export default function BookingDetails() {
       <VisitProgress status={booking.status} />
       <Body strong>{worker ? copy.area(booking.area) : booking.proName + " · " + copy.area(booking.area)}</Body>
       <Body>{copy.appointment(booking.appointment, booking.timing)}</Body>
+      {booking.distanceKm !== undefined && <Body small>{t("Approx.", "लगभग")} {booking.distanceKm} {worker
+        ? t("km from your work base", "किमी आपके कार्य आधार से") : t("km from the worker’s base", "किमी काम करने वाले के आधार से")}</Body>}
       {booking.pilot ? <>
         <PilotPrice offer={booking.pilot} />
         {booking.bill?.quantity && <Body>{t("Completed quantity", "पूरी मात्रा")} · {booking.bill.quantity}</Body>}

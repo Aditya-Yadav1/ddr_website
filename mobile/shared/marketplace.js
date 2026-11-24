@@ -1,5 +1,6 @@
 const pilot = require("./pilot-pricing");
 const { upperEstimate } = require("./price-range");
+const { distanceKm } = require("./coverage-distance");
 
 function createMarketplace(adapter) {
   const city = "Delhi";
@@ -172,17 +173,25 @@ function createMarketplace(adapter) {
     return "";
   }
 
-  function coversPin(person, pinCode) {
+  function listedPin(person, pinCode) {
     return Array.isArray(person?.pinCodes) && person.pinCodes.includes(pinCode);
   }
 
-  function covers(person, area, pinCode) {
-    return pinCode === undefined ? serviceArea(area, person.areas) : coversPin(person, pinCode);
+  function coverage(person, pinCode, point) {
+    if (!person) return null;
+    const radius = person.serviceRadiusKm ?? adapter.defaultRadiusKm;
+    const base = person.serviceBasePoint ?? adapter.pointForPin?.(person.serviceBasePin ?? person.pinCodes?.[0]);
+    const visit = point ?? adapter.pointForPin?.(pinCode);
+    if (!radius || !base || !visit) return listedPin(person, pinCode) ? {} : null;
+    const distance = distanceKm(base, visit);
+    return distance <= radius ? { distanceKm: Math.round(distance), approximate: !person.serviceBasePoint || !point } : null;
   }
 
-  function available(person, area, appointment = "", state = read(), timing = "", scope = "", pinCode) {
+  function coversPin(person, pinCode, point) { return Boolean(coverage(person, pinCode, point)); }
+
+  function available(person, area, appointment = "", state = read(), timing = "", scope = "", pinCode, point) {
     const rate = pilot.rateFor(person?.service, scope, pinCode);
-    return Boolean(person?.published && covers(person, area, pinCode)
+    return Boolean(person?.published && (pinCode === undefined ? serviceArea(area, person.areas) : coversPin(person, pinCode, point))
       && (rate ? pilot.eligible(person, rate) : servesTask(person, scope))
       && !slotError(person, { appointment, timing, unit: person.unit, ...(rate && { duration: rate.plusPrice ? 60 : rate.minutes }) }, state));
   }
@@ -250,7 +259,7 @@ function createMarketplace(adapter) {
   }
 
   function request({ intent, proId, scope, area, pinCode, appointment = "", timing = "", contact,
-    tier = "everyday", expectedPrice, expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, expectedOffer, requestFingerprint, details, brief, hours, priceLimit }) {
+    tier = "everyday", expectedPrice, expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, expectedOffer, requestFingerprint, details, brief, hours, priceLimit, visitPoint }) {
     const state = current();
     const existing = state.requests.find((job) => job.intent === intent
       && (!state.connected || job.customerId === state.account.id)
@@ -264,8 +273,9 @@ function createMarketplace(adapter) {
     const person = pro(proId, state);
     const trade = service(person?.service);
     const now = Date.now();
-    if (!trade?.tasks.includes(scope) || !covers(person, area, pinCode)) {
-      return { error: pinCode ? "This worker does not serve this PIN code." : "This worker does not serve the requested location.", code: "LOCATION_UNAVAILABLE" };
+    const match = pinCode === undefined ? null : coverage(person, pinCode, visitPoint);
+    if (!trade?.tasks.includes(scope) || !(pinCode === undefined ? serviceArea(area, person.areas) : match)) {
+      return { error: "This worker does not serve the requested location.", code: "LOCATION_UNAVAILABLE" };
     }
     const rate = pilot.rateFor(trade.id, scope, pinCode);
     if (rate ? !pilot.eligible(person, rate) : brief && !servesTask(person, scope)) {
@@ -288,6 +298,8 @@ function createMarketplace(adapter) {
     const job = {
       id: id(), intent, proId, scope, area, appointment, timing: !appointment && timing === "now" ? "now" : "", contact, service: trade.id,
       ...(pinCode && { pinCode }),
+      ...(match && { coverageChecked: true, ...match }),
+      ...(visitPoint && { visitPoint }),
       proName: person.name, price, unit, status: "pending",
       tier, minimumQuantity: unit === "hourly" ? 2 : 1,
       ...(plus && { includes: plus.includes, includesHi: plus.includesHi || "" }),
@@ -345,7 +357,9 @@ function createMarketplace(adapter) {
     }
     if (next === "accepted") {
       const person = pro(job.proId, state);
-      if ((job.pinCode || job.agreementVersion) && (!person || !covers(person, job.area, job.pinCode)
+      const stillCovered = job.pinCode ? (job.coverageChecked ? coversPin(person, job.pinCode, job.visitPoint) : listedPin(person, job.pinCode))
+        : person && serviceArea(job.area, person.areas);
+      if ((job.pinCode || job.agreementVersion) && (!stillCovered
         || (job.agreementVersion && !job.pilot && !servesTask(person, job.scope)))) {
         return { error: "The worker's coverage or task skills changed.", code: "TASK_UNAVAILABLE" };
       }
@@ -485,7 +499,7 @@ function createMarketplace(adapter) {
   }
 
   return { city, areas, units, services, statuses, read, save, reset, current, expire,
-    pros, pro, service, matches, available, serviceArea, coversPin, id, request, transition, contact, unread, readChat, track,
+    pros, pro, service, matches, available, serviceArea, coversPin, coverage, id, request, transition, contact, unread, readChat, track,
     position, localAppointment, appointmentTime, appointmentLabel, journeyStatuses, activeStatuses,
     immediateEnabled, acceptsAppointments, duration, defaultHours, blockSchedule, updateDuration, agenda,
     taskId, servesTask, slotError, reservationStart, reservationError, cancellableStatuses, storageKey: key };

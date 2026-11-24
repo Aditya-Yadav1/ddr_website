@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Linking } from "react-native";
 import { isPinCode } from "../../shared/pin-codes";
+import { locationQuery } from "../../src/device-place";
 import { api, type Tier, type WorkerDetails as Details } from "../../src/api";
 import { useDiscovery } from "../../src/discovery";
 import { useCopy } from "../../src/language";
@@ -19,7 +20,7 @@ export default function WorkerDetails() {
   const router = useRouter();
   const { token } = useSession();
   const { snapshot, error: directoryError, retry } = useDiscovery();
-  const { pinCode, setPinCode, checked, ids } = useLocation();
+  const { pinCode, point, setPinCode, checked, ids } = useLocation();
   const copy = useCopy();
   const { t } = copy;
   const [result, setResult] = useState<{ key: string; details?: Details; error?: unknown }>();
@@ -30,7 +31,7 @@ export default function WorkerDetails() {
   const selectionReady = !isPinCode(params.pinCode) || params.pinCode === pinCode;
   const rate = rateFor(worker?.service, params.scope, pinCode);
   const eligible = selectionReady && checked && !!worker && ids.includes(worker.id) && (!rate || pilotEligible(worker, rate));
-  const key = eligible ? JSON.stringify([params.id, pinCode, token]) : "";
+  const key = eligible ? JSON.stringify([params.id, pinCode, point, token]) : "";
 
   useEffect(() => {
     if (params.pinCode && isPinCode(params.pinCode)) setPinCode(params.pinCode);
@@ -38,11 +39,11 @@ export default function WorkerDetails() {
   useEffect(() => {
     if (!key) return;
     let current = true;
-    void api<Details>("worker-details?" + new URLSearchParams({ id: params.id, pinCode }), token ?? undefined)
+    void api<Details>("worker-details?" + new URLSearchParams({ id: params.id, ...locationQuery(pinCode, point) }), token ?? undefined)
       .then((details) => { if (current) setResult({ key, details }); })
       .catch((error) => { if (current) setResult({ key, error }); });
     return () => { current = false; };
-  }, [key, params.id, pinCode, token, snapshot?.revision, attempt]);
+  }, [key, params.id, pinCode, point, token, snapshot?.revision, attempt]);
 
   if (!snapshot) return <Page><Feedback error={directoryError} />
     {!!directoryError && <Button secondary label={t("Try again", "फिर कोशिश करें")} onPress={retry} />}</Page>;
@@ -50,7 +51,7 @@ export default function WorkerDetails() {
   if (!checked) return <Page><PinGate demoPin={snapshot.state.demoPinCode} /></Page>;
   if (!eligible || !worker || !service) return <Page>
     <VisitPin pinCode={pinCode} change />
-    <Heading>{t("Worker unavailable for this PIN", "इस पिन कोड में काम करने वाला उपलब्ध नहीं है")}</Heading>
+    <Heading>{t("Worker unavailable for this location", "इस जगह के लिए काम करने वाला उपलब्ध नहीं है")}</Heading>
     <Button label={t("Find matching workers", "उपलब्ध काम करने वाले खोजें")} onPress={() => router.dismissTo("/")} />
   </Page>;
 
@@ -68,6 +69,7 @@ export default function WorkerDetails() {
     <Panel>
       <Heading>{worker.name}</Heading>
       <ProviderRating rating={rating} />
+      {data?.details?.distanceKm !== undefined && <Body>{t("Approx.", "लगभग")} {data.details.distanceKm} {t("km from your visit", "किमी आपकी विज़िट से")}</Body>}
       <WorkerCheckBadge trust={worker.trust} sample={worker.sample} />
       <Body>{copy.service(service.id, service.name)} · {worker.years} {t("years’ experience", "साल का अनुभव")}</Body>
       <Body>{t(worker.bio, worker.bioHi || worker.bio)}</Body>

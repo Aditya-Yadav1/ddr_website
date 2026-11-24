@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { useCopy } from "../../src/language";
 import { LocationField, PinGate, useLocation } from "../../src/location";
 import { isPinCode } from "../../shared/pin-codes";
+import { locationQuery } from "../../src/device-place";
 import { useDiscovery } from "../../src/discovery";
 import { tasks, matchingTasks } from "../../src/catalog";
 import { api } from "../../src/api";
@@ -19,7 +20,7 @@ export default function ServiceOptions() {
   const params = useLocalSearchParams<{ id: string; query?: string; scope?: string; workers?: string; plus?: string }>();
   const { snapshot, error } = useDiscovery();
   const { token } = useSession();
-  const { pinCode, ids, checked, checking, error: locationError } = useLocation();
+  const { pinCode, point, ids, distances, checked, checking, error: locationError } = useLocation();
   const router = useRouter();
   const copy = useCopy();
   const { t } = copy;
@@ -35,7 +36,7 @@ export default function ServiceOptions() {
   const [group, setGroup] = useState("");
   const validPin = isPinCode(pinCode);
   const availabilityKey = params.workers === "1" && day && validPin
-    ? new URLSearchParams({ day, pinCode, scope: params.scope ?? "" }).toString() : "";
+    ? new URLSearchParams({ day, ...locationQuery(pinCode, point), scope: params.scope ?? "" }).toString() : "";
   const resultKey = availabilityKey + ":" + refresh;
   useEffect(() => {
     if (!availabilityKey) return;
@@ -69,8 +70,7 @@ export default function ServiceOptions() {
     const terms = [person.name, person.bio, person.bioHi, service?.name, ...person.areas,
       ...(service ? [copy.service(service.id, service.name), ...service.tasks.flatMap((task) => [task, copy.task(service.id, task)])] : [])];
     return !needle || terms.some((term) => term?.toLowerCase().includes(needle));
-  }).sort((a, b) => priceSort ? priceOf(a) - priceOf(b) : (taskId
-    ? Number(Boolean(b.specializations?.includes(taskId))) - Number(Boolean(a.specializations?.includes(taskId))) : 0)
+  }).sort((a, b) => (priceSort ? priceOf(a) - priceOf(b) : (distances[a.id]?.distanceKm ?? 100) - (distances[b.id]?.distanceKm ?? 100))
     || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 
   if (params.workers !== "1") {
@@ -95,7 +95,7 @@ export default function ServiceOptions() {
     <Heading>{category ? copy.service(category.id, category.name) : t("Service options", "सेवा के विकल्प")}</Heading>
     <Feedback error={error} />
     {!!params.scope && <Panel tone="info"><Body strong>{copy.task(params.id, params.scope)}</Body><Body small>{t("Your selected task", "आपका चुना काम")}</Body></Panel>}
-    {found.length > 0 && <Guide>{t("Workers serving PIN ", "इस पिन कोड में काम करने वाले: ") + pinCode}</Guide>}
+    {found.length > 0 && <Guide>{t("Workers near your visit location", "आपकी विज़िट के पास काम करने वाले")}</Guide>}
     <Row>
       <Button secondary compact selected={filters} label={t("Search & budget", "खोज और बजट")} onPress={() => setFilters(!filters)} />
       {(!rate || rate.plusPrice) && <Button secondary compact selected={plus} label={rate ? t("Two taps with Plus", "प्लस में दो नल") : t("Offers Plus", "प्लस उपलब्ध")} onPress={() => setPlus(!plus)} />}
@@ -136,6 +136,7 @@ export default function ServiceOptions() {
       service={catalog.services.find((item) => item.id === person.service)?.name ?? person.service}
       rate={selectedOffer ? copy.money(selectedOffer.price) + " · " + (selectedOffer.repairPrice ? t("inspection", "जाँच") : t("fixed labour", "श्रम का तय शुल्क"))
         : plus && person.plus ? copy.rate({ price: person.plus.price, maxPrice: person.plus.maxPrice, unit: person.unit }) : undefined}>
+      {!!distances[person.id] && <Body>{t("Approx.", "लगभग")} {distances[person.id].distanceKm} {t("km from your visit", "किमी आपकी विज़िट से")}</Body>}
       {checkedSlots && !!chooseSlot(checkedSlots[person.id]) &&
         <Body strong>{t("Available", "उपलब्ध")} · {copy.appointment(chooseSlot(checkedSlots[person.id])!)}</Body>}
       <Row>

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { AppState, Platform } from "react-native";
-import { api, ApiError, offlineDemo, type BookingCommand, type Payload, type PhoneChallenge, type ProfileCommand, type Snapshot } from "./api";
+import { api, ApiError, offlineDemo, type AreaPoint, type BookingCommand, type Payload, type PhoneChallenge, type ProfileCommand, type Snapshot } from "./api";
+import { locationQuery } from "./device-place";
 import { readStored, removeStored, writeStored } from "./storage";
 
 const key = offlineDemo ? "handyhive-offline-session" : "handyhive-session";
@@ -19,7 +20,7 @@ type Session = {
   logout: () => Promise<void>;
   changeBooking: (action: BookingCommand, body: Payload) => Promise<string>;
   changeProfile: (action: ProfileCommand, body: Payload) => Promise<void>;
-  checkSlots: (pinCode: string, appointments: string[], proId: string, immediate: boolean, scope?: string, hours?: number) => Promise<{ slots: string[]; immediate: boolean }>;
+  checkSlots: (pinCode: string, appointments: string[], proId: string, immediate: boolean, scope?: string, hours?: number, point?: AreaPoint) => Promise<{ slots: string[]; immediate: boolean }>;
 };
 const SessionContext = createContext<Session | null>(null);
 
@@ -165,10 +166,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const checkSlots = useCallback(async (pinCode: string, appointments: string[], proId: string, immediate: boolean, scope = "", hours = 2) => {
+  const checkSlots = useCallback(async (pinCode: string, appointments: string[], proId: string, immediate: boolean, scope = "", hours = 2, point?: AreaPoint) => {
     const credential = active.current;
     if (!credential) throw new Error("Sign in to continue.");
-    const query = new URLSearchParams({ pinCode, proId, timing: immediate ? "now" : "", scope, hours: String(hours) });
+    const query = new URLSearchParams({ ...locationQuery(pinCode, point), proId, timing: immediate ? "now" : "", scope, hours: String(hours) });
     for (const appointment of appointments) query.append("slot", appointment);
     const results = await api<{ slots: string[]; immediate: boolean }>("slots?" + query, credential);
     if (active.current !== credential) throw new Error("Sign in to continue.");

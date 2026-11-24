@@ -10,6 +10,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --chown=node:node *.js ./
+COPY --chown=node:node pin-centres.json ./
 COPY --chown=node:node mobile/shared ./mobile/shared
 COPY --from=web --chown=node:node /build/mobile/dist ./mobile/dist
 COPY --chown=node:node scripts ./scripts

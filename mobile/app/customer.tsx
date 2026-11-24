@@ -14,9 +14,9 @@ export default function Customer() {
     {!pinCode ? <PinGate demoPin={snapshot?.state.demoPinCode} /> : <>
       <LocationField compact />
       {checked && !ids.length && <Panel>
-        <Heading size="small">{t("No workers available in this PIN code yet", "इस पिन कोड में अभी कोई काम करने वाला उपलब्ध नहीं है")}</Heading>
+        <Heading size="small">{t("No workers available near this location yet", "इस जगह के पास अभी कोई काम करने वाला उपलब्ध नहीं है")}</Heading>
         <Body>{snapshot?.state.requireVerification
-          ? t("Workers appear here after their profile is approved and they list this PIN.", "प्रोफ़ाइल मंज़ूर होने और यह पिन जोड़ने के बाद काम करने वाले यहाँ दिखते हैं।")
+          ? t("Approved workers appear when your visit is within their service area.", "आपकी विज़िट उनकी सेवा सीमा के भीतर होने पर मंज़ूर काम करने वाले दिखेंगे।")
           : t("Change the visit location to check another area.", "दूसरा इलाका देखने के लिए विज़िट की जगह बदलें।")}</Body>
       </Panel>}
       {checked && ids.length > 0 && <><Heading>{t("What do you need help with?", "किस काम में मदद चाहिए?")}</Heading>

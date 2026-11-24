@@ -15,6 +15,8 @@ const validateProfile = require("./mobile/shared/worker-profile.js");
 const demoWorkers = require("./mobile/shared/demo-workers.js");
 const pilot = require("./mobile/shared/pilot-pricing");
 const { initialLimits, ratesWithinLimit } = require("./mobile/shared/pricing-limits");
+const { areaPoint, defaultRadiusKm } = require("./mobile/shared/coverage-distance");
+const pinCentres = require("./pin-centres.json");
 const { isPinCode, demoPinCode, demoPinCodes } = require("./mobile/shared/pin-codes.js");
 const { readReview } = require("./mobile/shared/worker-reviews.js");
 const migrate = require("./db-migrations.js");
@@ -158,7 +160,7 @@ function seedPreviewWorkers() {
   });
 }
 
-function bookingForAccount({ details, requestFingerprint, arrivalIdentity, checkout, ...job }, account) {
+function bookingForAccount({ details, requestFingerprint, arrivalIdentity, checkout, visitPoint, coverageChecked, ...job }, account) {
   const profile = JSON.parse(getStore.get().body).profiles.find((person) => person.id === job.proId);
   return {
     ...job, workerTrust: trust.summary(profile), tier: job.tier || "everyday", minimumQuantity: job.minimumQuantity ?? (job.unit === "hourly" ? 2 : 1),
@@ -201,6 +203,11 @@ function transact(account, action, query, native = false) {
     const market = createMarketplace({
       getItem: () => JSON.stringify(state),
       setItem: (_key, json) => { state = JSON.parse(json); },
+      defaultRadiusKm: config.production ? defaultRadiusKm : undefined,
+      pointForPin: (pin) => {
+        const coordinates = pinCentres[pin];
+        return Array.isArray(coordinates) ? { latitude: coordinates[0], longitude: coordinates[1] } : null;
+      },
     });
     market.current();
     const result = action(market, () => state);
@@ -238,7 +245,7 @@ function snapshot(market, state, query, native) {
     ...params,
     pinCode,
     ids: market.pros(state).filter((profile) => profile.id !== account?.id && bookable(account, profile)
-      && market.available(profile, "", params.appointment, state, params.timing, "", pinCode)).map((profile) => profile.id),
+      && market.available(profile, "", params.appointment, state, params.timing, "", pinCode, queryVisitPoint(query))).map((profile) => profile.id),
   } : null;
   const { bookingUpdates, bookingSms } = updates.forAccount(account);
   const recentUpdates = native && account
@@ -289,6 +296,13 @@ function bookable(account, profile) {
   return Array.isArray(profile?.pinCodes) && profile.pinCodes.some(isPinCode) && (!profile.sample || config.previewWorkers)
     && ratesWithinLimit(profile, pricingLimit(profile.service, profile.unit))
     && trust.eligible(profile, config.requireVerification) && !trust.blocked(account?.id, profile.id);
+}
+
+function queryVisitPoint(query) {
+  if (!query.has("lat") && !query.has("lng")) return undefined;
+  const point = areaPoint({ latitude: Number(query.get("lat")), longitude: Number(query.get("lng")) });
+  if (!point) throw failure(400, "Check the visit location.", "INVALID_LOCATION");
+  return point;
 }
 
 function sessionStore(table) {
@@ -560,6 +574,8 @@ function mutate(action, market, state, input, native = false, requestFingerprint
     }
     if (previousIntent && requestFingerprint) return { job: previousIntent };
     if (!isPinCode(pinCode)) throw failure(400, "Enter a valid six-digit PIN code.", "INVALID_PIN_CODE");
+    const visitPoint = areaPoint(input.visitPoint);
+    if (input.visitPoint !== undefined && !visitPoint) throw failure(400, "Check the visit location.", "INVALID_LOCATION");
     if (!bookable(account, worker)) throw failure(409, "This worker is unavailable for new bookings.", "WORKER_UNAVAILABLE");
     const usesOffer = native && (tier !== undefined || expectedPrice !== undefined || input.address !== undefined);
     let brief;
@@ -591,7 +607,7 @@ function mutate(action, market, state, input, native = false, requestFingerprint
       throw failure(409, "Review the current price and booking limit before sending.", "OFFER_CHANGED");
     }
     const result = market.request({ intent, proId, scope, area: area.trim() || pinCode, pinCode, appointment, timing, contact, requestFingerprint,
-      priceLimit,
+      priceLimit, visitPoint,
       ...(usesOffer && { tier, expectedPrice, expectedMaxPrice: input.expectedMaxPrice, expectedOffer: input.expectedOffer, expectedUnit, expectedIncludes, expectedIncludesHi, details, brief, hours }),
     });
     if (result.job && (config.production || input.safetyVersion === 1) && !result.job.safetyVersion) {
@@ -811,6 +827,7 @@ function nativeMutation(action, market, state, input) {
   if (action === "request" && input.expectedMaxPrice !== undefined) values.push({ expectedMaxPrice: input.expectedMaxPrice });
   if (action === "request" && input.expectedOffer !== undefined) values.push({ expectedOffer: input.expectedOffer });
   if (action === "request" && input.expectedQuoteMaximum !== undefined) values.push({ expectedQuoteMaximum: input.expectedQuoteMaximum });
+  if (action === "request" && input.visitPoint !== undefined) values.push({ visitPoint: canonical(input.visitPoint) });
   if (action === "quote-send" && input.pilotAction !== undefined) values.push({ pilotAction: input.pilotAction });
   if (action === "transition" && input.reason !== undefined) values.push(input.reason);
   const fingerprint = sha256(JSON.stringify([action, values]));
@@ -918,11 +935,12 @@ async function handleApi(req, res, url, native) {
     if (!isPinCode(pinCode)) throw failure(400, "Enter a valid six-digit PIN code.", "INVALID_PIN_CODE");
     const details = transact(account, (market, read) => {
       const worker = market.pro(id, read());
-      if (id === account?.id || !worker?.published || !bookable(account, worker) || !market.coversPin(worker, pinCode)) {
-        throw failure(404, "This worker is unavailable for this PIN code.");
+      const match = market.coverage(worker, pinCode, queryVisitPoint(url.searchParams));
+      if (id === account?.id || !worker?.published || !bookable(account, worker) || !match) {
+        throw failure(404, "This worker is unavailable for this location.");
       }
       return {
-        workPhone: worker.workPhone || "",
+        workPhone: worker.workPhone || "", ...match,
         reviews: db.prepare("SELECT rating, comment, created FROM service_reviews WHERE pro=? ORDER BY created DESC, rowid DESC LIMIT 8").all(id),
       };
     });
@@ -942,15 +960,22 @@ async function handleApi(req, res, url, native) {
     if (!isPinCode(pinCode)) {
       throw failure(400, "Enter a valid six-digit PIN code.", "INVALID_PIN_CODE");
     }
-    const result = transact(account, (market, read) => ({
-      ids: market.pros(read()).filter((person) => person.id !== account?.id && person.published && bookable(account, person)
-        && market.coversPin(person, pinCode)).map((person) => person.id),
-    }));
+    const point = queryVisitPoint(url.searchParams);
+    const result = transact(account, (market, read) => {
+      const matches = market.pros(read()).flatMap((person) => {
+        if (person.id === account?.id || !person.published || !bookable(account, person)) return [];
+        const match = market.coverage(person, pinCode, point);
+        return match ? [{ id: person.id, ...match }] : [];
+      });
+      return { ids: matches.map(({ id }) => id), distances: Object.fromEntries(matches.flatMap(({ id, distanceKm, approximate }) =>
+        distanceKm === undefined ? [] : [[id, { distanceKm, approximate }]])) };
+    });
     return send(res, 200, result);
   }
   if (native && action === "availability" && req.method === "GET") {
     const account = readAccount();
     const { searchParams } = url;
+    const point = queryVisitPoint(searchParams);
     const pinCode = searchParams.get("pinCode");
     const day = searchParams.get("day");
     const date = day + "T";
@@ -963,7 +988,7 @@ async function handleApi(req, res, url, native) {
       const state = read();
       const options = {};
       for (const person of market.pros(state)) {
-        if (person.id === account?.id || !person.published || !bookable(account, person) || !market.coversPin(person, pinCode)
+        if (person.id === account?.id || !person.published || !bookable(account, person) || !market.coversPin(person, pinCode, point)
           || (scope && !market.service(person.service)?.tasks.includes(scope))) continue;
         const hours = person.hours ?? market.defaultHours;
         const start = market.appointmentTime(date + hours.start);
@@ -971,7 +996,7 @@ async function handleApi(req, res, url, native) {
         const slots = [];
         for (let time = start; time < end; time += 3_600_000) {
           const slot = market.localAppointment(time);
-          if (market.available(person, "", slot, state, "", scope, pinCode)) slots.push(slot);
+          if (market.available(person, "", slot, state, "", scope, pinCode, point)) slots.push(slot);
         }
         if (slots.length) options[person.id] = slots;
       }
@@ -987,6 +1012,7 @@ async function handleApi(req, res, url, native) {
     const timing = url.searchParams.get("timing") || "";
     const scope = url.searchParams.get("scope") || "";
     const hours = Number(url.searchParams.get("hours") || "2");
+    const point = queryVisitPoint(url.searchParams);
     if (!isPinCode(pinCode)) throw failure(400, "Enter a valid six-digit PIN code.", "INVALID_PIN_CODE");
     if (proId === account.id || slots.length > 24 || !["", "now"].includes(timing)
       || scope.length > 120 || !Number.isInteger(hours) || hours < 2 || hours > 8
@@ -997,10 +1023,10 @@ async function handleApi(req, res, url, native) {
       const state = read();
       const person = market.pro(proId, state);
       if (!bookable(account, person)) return { slots: [], immediate: false };
-      return { slots: slots.filter((slot) => market.available(person, "", slot, state, "", scope, pinCode)
+      return { slots: slots.filter((slot) => market.available(person, "", slot, state, "", scope, pinCode, point)
           && (person.unit !== "hourly" || pilot.rateFor(person.service, scope, pinCode)
             || !market.slotError(person, { appointment: slot, duration: hours * 60 }, state))),
-        immediate: timing === "now" && market.available(person, "", "", state, "now", "", pinCode) };
+        immediate: timing === "now" && market.available(person, "", "", state, "now", "", pinCode, point) };
     });
     return send(res, 200, result);
   }

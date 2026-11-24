@@ -180,6 +180,11 @@ test("invited accounts share a booking only after a separate worker passes opera
     assert.equal(review.status, 200, review.body.error);
   }
   assert.deepEqual((await api("coverage?pinCode=110017", { token: customer.token })).body.ids, [worker.id]);
+  const adjacent = await api("coverage?pinCode=110016&lat=28.553&lng=77.192", { token: customer.token });
+  assert.deepEqual(adjacent.body.ids, [worker.id]);
+  assert.ok(adjacent.body.distances[worker.id].distanceKm < 12);
+  assert.deepEqual((await api("coverage?pinCode=400001", { token: customer.token })).body.ids, []);
+  assert.equal((await api("worker-details?id=" + worker.id + "&pinCode=110016", { token: customer.token })).status, 200);
   const tooExpensive = await api("profile", { token: worker.token, body: {
     name: "Test worker", bio: "Local test profile", service: "plumbing", unit: "visit",
     years: 2, price: 500, maxPrice: 600, areas: ["Saket"], pinCodes: ["110017"],
@@ -187,12 +192,15 @@ test("invited accounts share a booking only after a separate worker passes opera
   assert.equal(tooExpensive.body.code, "PRICE_LIMIT");
   const appointment = new Date(Date.now() + 2 * 86400000 + 19800000).toISOString().slice(0, 10) + "T10:00";
   const requestDetails = {
-    ...booking(worker.id, appointment), tier: "everyday", expectedPrice: 199, expectedMaxPrice: 300, expectedUnit: "visit",
+    ...booking(worker.id, appointment), pinCode: "110016", area: "Hauz Khas", visitPoint: { latitude: 28.553, longitude: 77.192 },
+    tier: "everyday", expectedPrice: 199, expectedMaxPrice: 300, expectedUnit: "visit",
     expectedIncludes: "", expectedIncludesHi: "", expectedQuoteMaximum: 800, customerName: "Test customer", address: "1 Example address",
     brief: { problem: "The tap drips", materials: "inspect", readiness: "unknown" }, hours: 2,
   };
   const stale = await api("request", { token: customer.token, body: { ...requestDetails, expectedQuoteMaximum: 3500 } });
   assert.equal(stale.body.code, "OFFER_CHANGED");
+  const outside = await api("request", { token: customer.token, body: { ...requestDetails, visitPoint: { latitude: 19.076, longitude: 72.878 } } });
+  assert.equal(outside.body.code, "LOCATION_UNAVAILABLE");
   const booked = await api("request", { token: customer.token, body: requestDetails });
   assert.equal(booked.status, 200, booked.body.error);
   assert.equal((await api("admin-price-limit", { token: operator.token, body: { ...pricing, maximum: 250, quoteMaximum: 1200 } })).status, 200);
@@ -203,6 +211,8 @@ test("invited accounts share a booking only after a separate worker passes opera
   assert.equal(loggedIn.status, 200, loggedIn.body.error);
   assert.equal(loggedIn.body.state.profile.trust.phoneVerified, false);
   assert.equal(loggedIn.body.state.requests[0].id, booked.body.jobId);
+  assert.equal(loggedIn.body.state.requests[0].visitPoint, undefined);
+  assert.ok(loggedIn.body.state.requests[0].distanceKm < 12);
   assert.equal(loggedIn.body.state.requests[0].quoteMaximumPaise, 80_000);
   const job = booked.body.jobId;
   for (const change of ["accept", "arrive"]) {

@@ -9,6 +9,8 @@ export type WorkerTrust = {
 export type Account = { id: string; handle: string; name?: string; email?: string; photo?: string; googleLinked?: boolean; phone?: string };
 export type Hours = { days: number[]; start: string; end: string; buffer: number };
 export type Unit = "visit" | "hourly" | "fixed";
+export type AreaPoint = { latitude: number; longitude: number };
+export type CoverageDistance = { distanceKm: number; approximate?: boolean };
 export type PricingLimit = { service: string; unit: Unit; minimum: number; maximum: number; quoteMaximum: number };
 export type Tier = "everyday" | "plus";
 export type Plus = { price: number; maxPrice?: number; includes: string; includesHi?: string };
@@ -30,6 +32,9 @@ export type Profile = {
   bioHi?: string;
   areas: string[];
   pinCodes?: string[];
+  serviceBasePin?: string;
+  serviceBasePoint?: AreaPoint | null;
+  serviceRadiusKm?: number;
   price: number; maxPrice?: number;
   unit: Unit;
   years: number;
@@ -68,7 +73,7 @@ export type SupportTicket = {
   message: string; created: number; status: "open" | "resolved"; response: string;
 };
 export type WorkerRating = { pro: string; rating: number; count: number };
-export type WorkerDetails = { workPhone: string; reviews: { rating: number; comment: string; created: number }[] };
+export type WorkerDetails = { workPhone: string; distanceKm?: number; reviews: { rating: number; comment: string; created: number }[] };
 export type Booking = {
   demoWorker?: boolean;
   safetyVersion?: number;
@@ -82,6 +87,7 @@ export type Booking = {
   scope: string;
   area: string;
   pinCode?: string;
+  distanceKm?: number;
   appointment: string;
   timing?: "" | "now";
   tier: Tier;

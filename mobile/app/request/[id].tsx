@@ -2,7 +2,7 @@ import { upperEstimate } from "../../shared/price-range";
 import { SavedAddresses } from "../../src/saved-addresses";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import type { Brief, Payload, PilotOffer, Tier, Unit } from "../../src/api";
+import type { AreaPoint, Brief, Payload, PilotOffer, Tier, Unit } from "../../src/api";
 import { tasks } from "../../src/catalog";
 import { appointmentDays, appointmentTimes } from "../../src/appointments";
 import { useBookingAction } from "../../src/booking-action";
@@ -22,13 +22,14 @@ type Review = {
   intent: string; proId: string; scope: string; area: string; pinCode: string; appointment: string; timing: "" | "now"; contact: string;
   tier: Tier; expectedPrice: number; expectedMaxPrice: number; expectedUnit: Unit; expectedIncludes: string; expectedIncludesHi: string; expectedOffer?: string; expectedQuoteMaximum?: number;
   customerName: string; address: string; landmark: string; notes: string; brief: Brief; hours: number;
+  visitPoint?: AreaPoint;
 };
 
 export default function RequestAppointment() {
   const params = useLocalSearchParams<{ id: string; scope?: string; area?: string; pinCode?: string; tier?: Tier; appointment?: string }>();
   const { token, snapshot, error: connectionError, checkSlots } = useSession();
   const { snapshot: discovery } = useDiscovery();
-  const { pinCode, setPinCode, checked, ids } = useLocation();
+  const { pinCode, point, setPinCode, checked, ids } = useLocation();
   const router = useRouter();
   const copy = useCopy();
   const { t } = copy;
@@ -70,7 +71,7 @@ export default function RequestAppointment() {
     return profile?.specializations?.length ? profile.specializations.includes(entry?.id ?? "") : entry?.legacy;
   }) ?? [];
   const slotKey = proId && areaValid && dateValid
-    ? JSON.stringify([pinCode, times.map((slot) => day + "T" + slot), proId, scope, agreedHours, slotRefresh]) : "";
+    ? JSON.stringify([pinCode, times.map((slot) => day + "T" + slot), proId, scope, agreedHours, point, slotRefresh]) : "";
 
   useEffect(() => {
     if (params.pinCode && isPinCode(params.pinCode)) setPinCode(params.pinCode);
@@ -79,8 +80,8 @@ export default function RequestAppointment() {
   useEffect(() => {
     if (!slotKey) return;
     let current = true;
-    const [pin, slots, worker, task, quantity] = JSON.parse(slotKey) as [string, string[], string, string, number];
-    void checkSlots(pin, slots, worker, false, task, quantity).then((result) => {
+    const [pin, slots, worker, task, quantity, visitPoint] = JSON.parse(slotKey) as [string, string[], string, string, number, AreaPoint | null];
+    void checkSlots(pin, slots, worker, false, task, quantity, visitPoint ?? undefined).then((result) => {
       if (current) setSlotResult({ key: slotKey, ...result });
     }).catch((failure) => {
       if (current) setSlotResult({ key: slotKey, slots: [], immediate: false, error: failure });
@@ -106,7 +107,7 @@ export default function RequestAppointment() {
   </Page>;
   if (!review && (!profile || !service || !areaValid)) return <Page>
     <VisitPin pinCode={pinCode} change />
-    <Heading>{t("Worker unavailable for this PIN", "इस पिन कोड में काम करने वाला उपलब्ध नहीं है")}</Heading>
+    <Heading>{t("Worker unavailable for this location", "इस जगह के लिए काम करने वाला उपलब्ध नहीं है")}</Heading>
     <Button label={t("Find matching workers", "उपलब्ध काम करने वाले खोजें")} onPress={() => router.dismissTo("/")} />
   </Page>;
   const plus = tier === "plus" ? (rate ? offer : profile?.plus) : null;
@@ -136,7 +137,8 @@ export default function RequestAppointment() {
   const valid = reviewIssues.length === 0;
   const reviewedPlus = review?.tier === "plus" ? profile?.plus : null;
   const currentReviewRate = rateFor(profile?.service, review?.scope, review?.pinCode ?? "");
-  const offerChanged = Boolean(review && (review.expectedQuoteMaximum !== limit?.quoteMaximum || (review.expectedOffer
+  const offerChanged = Boolean(review && (pinCode !== review.pinCode || JSON.stringify(review.visitPoint) !== JSON.stringify(point)
+    || review.expectedQuoteMaximum !== limit?.quoteMaximum || (review.expectedOffer
     ? !currentReviewRate || !eligible(profile, currentReviewRate) || currentReviewRate.id !== review.expectedOffer || pinCode !== review.pinCode
     : currentReviewRate || !profile || (review.tier === "plus" && !reviewedPlus)
     || review.expectedMaxPrice !== upperEstimate(reviewedPlus ?? profile) || review.expectedPrice !== (reviewedPlus?.price ?? profile.price) || review.expectedUnit !== profile.unit
@@ -155,6 +157,7 @@ export default function RequestAppointment() {
       expectedMaxPrice: maxEstimate, expectedUnit: unit,
       ...(offer && { expectedOffer: offer.id }),
       ...(limit && { expectedQuoteMaximum: limit.quoteMaximum }),
+      ...(point && { visitPoint: point }),
       expectedIncludes: plus?.includes || "", expectedIncludesHi: plus?.includesHi || "",
       customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim(),
       brief: { ...brief, problem: brief.problem.trim(), ...(offer && {

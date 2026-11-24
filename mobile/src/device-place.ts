@@ -1,9 +1,13 @@
 import { Platform } from "react-native";
-import { api } from "./api";
+import { api, type AreaPoint } from "./api";
 import { isPinCode } from "../shared/pin-codes";
 
-export type VisitPlace = { pinCode: string; value: string };
-export type GpsFix = { latitude: number; longitude: number; accuracy: number };
+export type VisitPlace = { pinCode: string; value: string; point?: AreaPoint };
+export type GpsFix = AreaPoint & { accuracy: number };
+
+export function locationQuery(pinCode: string, point?: AreaPoint) {
+  return { pinCode, ...(point && { lat: String(point.latitude), lng: String(point.longitude) }) };
+}
 
 export const canUseGps = () => Platform.OS !== "web" || Boolean(globalThis.isSecureContext && navigator.geolocation);
 

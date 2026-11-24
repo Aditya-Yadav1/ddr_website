@@ -4,8 +4,10 @@ import { ratesWithinLimit } from "../shared/pricing-limits";
 import { tasks } from "../src/catalog";
 import { isPinCode } from "../shared/pin-codes";
 import { normalizeWorkPhone } from "../shared/worker-profile";
+import { areaPoint, defaultRadiusKm } from "../shared/coverage-distance";
 import { useRef, useState } from "react";
-import type { Payload, ProfileCommand, Unit } from "../src/api";
+import { offlineDemo, type AreaPoint, type Payload, type ProfileCommand, type Unit } from "../src/api";
+import { canUseGps, deviceFix } from "../src/device-place";
 import { useCopy } from "../src/language";
 import { commission, rateFor } from "../src/pilot-pricing";
 import { useSession } from "../src/session";
@@ -30,6 +32,14 @@ export default function WorkerProfile() {
   const [pinText, setPinText] = useState(profile?.pinCodes?.join(", ") ?? "");
   const pinCodes = [...new Set(pinText.split(/[\s,]+/).filter(Boolean))];
   const validPins = pinCodes.length > 0 && pinCodes.length <= 20 && pinCodes.every(isPinCode);
+  const [basePin, setBasePin] = useState(profile?.serviceBasePin ?? profile?.pinCodes?.[0] ?? "");
+  const [radius, setRadius] = useState(profile?.serviceRadiusKm ?? defaultRadiusKm);
+  const [baseLocation, setBaseLocation] = useState<{ pin: string; point: AreaPoint } | null>(
+    profile?.serviceBasePoint && basePin ? { pin: basePin, point: profile.serviceBasePoint } : null);
+  const [locating, setLocating] = useState(false);
+  const [locationUnavailable, setLocationUnavailable] = useState(false);
+  const serviceBasePin = pinCodes.includes(basePin) ? basePin : pinCodes[0];
+  const serviceBasePoint = baseLocation?.pin === serviceBasePin ? baseLocation.point : null;
   const pilotRates = pinCodes.includes("110075") ? tasks.filter((task) => task.service === service && skills.includes(task.id))
     .flatMap((task) => {
       const rate = rateFor(task.service, task.task, "110075");
@@ -58,6 +68,19 @@ export default function WorkerProfile() {
   const working = useRef(false);
   if (!catalog) return null;
 
+  async function locateBase() {
+    if (!serviceBasePin || locating) return;
+    setLocating(true);
+    setLocationUnavailable(false);
+    try {
+      const fix = await deviceFix();
+      const point = areaPoint(fix, 2);
+      if (!point || fix.accuracy > 250) setLocationUnavailable(true);
+      else setBaseLocation({ pin: serviceBasePin, point });
+    } catch { setLocationUnavailable(true); }
+    finally { setLocating(false); }
+  }
+
   async function submit(action: ProfileCommand, body: Payload) {
     if (working.current) return false;
     working.current = true;
@@ -79,6 +102,7 @@ export default function WorkerProfile() {
   async function saveProfile() {
     const stored = await submit("profile", {
       name, bio, bioHi, service, areas, pinCodes, years: Number(years), price: Number(price), maxPrice: Number(maxPrice), unit, credential: profile?.credential || "", specializations: skills,
+      ...(!offlineDemo && { serviceBasePin, serviceRadiusKm: radius, serviceBasePoint }),
       pilotOffers: pilotRates.map(({ rate }) => rate.id).filter((id) => pilotOffers.includes(id)),
       languages: languages.split(/[,،]/).map((value) => value.trim()).filter(Boolean),
       workPhone,
@@ -147,6 +171,23 @@ export default function WorkerProfile() {
       <Field label={t("Languages you speak (optional)", "आप कौन-सी भाषाएँ बोलते हैं? (वैकल्पिक)")} placeholder={t("Hindi, English", "हिन्दी, अंग्रेज़ी")}
         hint={t("Separate languages with commas.", "भाषाओं को कॉमा से अलग करें।")} value={languages} onChangeText={setLanguages} maxLength={150} />
     </Panel>
+    {!offlineDemo && validPins && <Panel tone="info">
+      <Heading size="small">{t("Travel radius", "यात्रा की दूरी")}</Heading>
+      <Body>{t("Choose a base PIN and how far you are willing to travel. Customers within that distance can request a visit, including across PIN boundaries.", "अपना आधार पिन और यात्रा की दूरी चुनें। उस दूरी के भीतर ग्राहक दूसरे पिन से भी अनुरोध भेज सकते हैं।")}</Body>
+      <Body strong>{t("Work base PIN", "काम का आधार पिन")}</Body>
+      <Row>{pinCodes.map((pin) => <Button key={pin} secondary compact selected={serviceBasePin === pin} label={pin}
+        onPress={() => setBasePin(pin)} />)}</Row>
+      <Body strong>{t("Straight-line distance", "सीधी दूरी")}</Body>
+      <Row>{[10, 12, 15].map((km) => <Button key={km} secondary compact selected={radius === km}
+        label={km + " km"} onPress={() => setRadius(km)} />)}</Row>
+      {serviceBasePoint
+        ? <Button secondary compact label={t("Use PIN centre instead", "पिन का केंद्र इस्तेमाल करें")} onPress={() => setBaseLocation(null)} />
+        : canUseGps() && <Button secondary compact
+          label={locating ? t("Finding your location…", "जगह खोज रहे हैं…") : t("Use approximate current location as base", "मौजूदा जगह को अनुमानित आधार बनाएँ")}
+          disabled={locating} onPress={() => void locateBase()} />}
+      {locationUnavailable && <Body>{t("Location unavailable. Your base PIN will be used.", "जगह उपलब्ध नहीं है। आधार पिन इस्तेमाल होगा।")}</Body>}
+      <Body small>{t("Your base coordinates are private. You choose whether to accept each request.", "आपके आधार के निर्देशांक निजी हैं। हर अनुरोध स्वीकार करना आपकी पसंद है।")}</Body>
+    </Panel>}
     {!!pilotRates.length && <Panel tone="info">
       <Heading size="small">{t("Dwarka pilot offers", "द्वारका के परीक्षण विकल्प")}</Heading>
       <Body>{t("Choose the offers you accept. Estimated payout uses a 12% labour commission.", "स्वीकार किए जाने वाले विकल्प चुनें। अनुमानित कमाई में 12% श्रम कमीशन है।")}</Body>
@@ -191,7 +232,7 @@ export default function WorkerProfile() {
     <Section>
       {feedback("profile")}
       <Button label={busy === "profile" ? t("Saving…", "सेव हो रहा है…") : profile ? t("Save profile and rates", "प्रोफ़ाइल और दरें सेव करें")
-        : t("Publish profile", "प्रोफ़ाइल प्रकाशित करें")} disabled={!!busy || !profileValid} onPress={() => void saveProfile()} />
+        : t("Publish profile", "प्रोफ़ाइल प्रकाशित करें")} disabled={!!busy || locating || !profileValid} onPress={() => void saveProfile()} />
     </Section>
     {profile && <>
       <Panel>

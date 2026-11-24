@@ -53,7 +53,7 @@ export default function WorkerJobs() {
           : missingPins ? t("Add your service PIN codes to receive new bookings.", "नई बुकिंग पाने के लिए सेवा के पिन कोड जोड़ें।")
           : ratesNeedUpdate ? t("Your listing will be available for new bookings after you save rates within the ASAAN limits.", "आसान की सीमा के भीतर दरें सहेजने के बाद नई बुकिंग मिल सकेंगी।")
           : verificationNeeded ? t("Customers can find your profile after ASAAN reviews and approves your checks.", "आसान की जाँच और मंज़ूरी के बाद ग्राहक आपकी प्रोफ़ाइल देख सकेंगे।")
-          : profile.published ? t("Customers can find your profile in the PIN codes you serve.", "आपके सेवा वाले पिन कोड में ग्राहक आपकी प्रोफ़ाइल देख सकते हैं।")
+          : profile.published ? t("Customers within your coverage can request a visit. You choose which requests to accept.", "आपकी सेवा सीमा में ग्राहक विज़िट का अनुरोध कर सकते हैं। आप तय करें कि कौन सा अनुरोध स्वीकार करना है।")
           : t("You can manage existing jobs while your profile is paused.", "प्रोफ़ाइल रुकी होने पर भी आप मौजूदा काम संभाल सकते हैं।")}</Body>
         <Button label={t("Profile, rates & availability", "प्रोफ़ाइल, दरें और उपलब्धता")} onPress={() => router.push("/worker-profile")} />
       </> : <>

@@ -230,7 +230,7 @@ function snapshot(data, market, owner) {
   const requests = state.requests.filter((job) => owner && (job.customerId === owner.id || job.proId === owner.id));
   const blocked = data.blockedWorkers?.[owner?.id] || [];
   const profiles = state.profiles.filter((person) => person.published && !blocked.includes(person.id))
-    .map(({ workPhone, ...person }) => ({ ...person, trust: trust(data, person.id) }));
+    .map(({ workPhone, serviceBasePoint, ...person }) => ({ ...person, trust: trust(data, person.id) }));
   const ratings = profiles.flatMap((person) => {
     const scores = providerReviews(data, state.requests, person.id);
     return scores.length ? [{ pro: person.id, count: scores.length,
@@ -239,7 +239,7 @@ function snapshot(data, market, owner) {
   return { serverTime: Date.now(), state: {
     account: owner || { id: "", handle: "" }, profiles, ratings, demoPinCode,
     profile: state.profile ? { ...state.profile, trust: trust(data, state.profile.id) } : null,
-    requests: requests.map(({ details, requestFingerprint, ...job }) => ({
+    requests: requests.map(({ details, requestFingerprint, visitPoint, coverageChecked, ...job }) => ({
       ...job, ...(owner.id === job.customerId || job.acceptedAt ? { details } : {}), workerTrust: trust(data, job.proId),
     })),
     addresses: data.addresses[owner?.id] || [], savedWorkers: data.savedWorkers[owner?.id] || [],

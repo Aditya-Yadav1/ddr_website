@@ -2,21 +2,24 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Image, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { isPinCode } from "../shared/pin-codes";
+import { areaPoint } from "../shared/coverage-distance";
 import { localPlaces } from "../shared/local-places";
-import { canUseGps, deviceFix, devicePlace, type VisitPlace } from "./device-place";
+import { canUseGps, deviceFix, devicePlace, locationQuery, type VisitPlace } from "./device-place";
 import { searchPostalDirectory } from "./postal-directory";
-import { api, offlineDemo } from "./api";
+import { api, offlineDemo, type AreaPoint, type CoverageDistance } from "./api";
 import { useCopy } from "./language";
 import { useSession } from "./session";
 import { readStored, writeStored } from "./storage";
 import { Body, Button, colors, Feedback, Field, fontFamily, Guide, Heading, heroImage, Panel, Row, Section, Tag } from "./ui";
 
-type Coverage = { key: string; ids: string[]; error?: unknown };
+type Coverage = { key: string; ids: string[]; distances?: Record<string, CoverageDistance>; error?: unknown };
 type ServiceLocation = {
   pinCode: string;
   locality: string;
-  setPinCode: (value: string, locality?: string) => void;
+  point?: AreaPoint;
+  setPinCode: (value: string, locality?: string, point?: AreaPoint) => void;
   ids: string[];
+  distances: Record<string, CoverageDistance>;
   checked: boolean;
   checking: boolean;
   error: unknown;
@@ -27,13 +30,21 @@ const storageKey = "handyhive-service-pin";
 
 export function LocationProvider({ children }: { children: ReactNode }) {
   const { token, snapshot } = useSession();
-  const [{ pinCode, value: locality }, updatePlace] = useState<VisitPlace>(
+  const [{ pinCode, value: locality, point }, updatePlace] = useState<VisitPlace>(
     { pinCode: "", value: "" });
   const [result, setResult] = useState<Coverage | null>(null);
   const [attempt, setAttempt] = useState(0);
   const edited = useRef(false);
-  const key = JSON.stringify([token, pinCode]);
+  const previousToken = useRef(token);
+  const key = JSON.stringify([token, pinCode, point]);
   const valid = isPinCode(pinCode);
+
+  useEffect(() => {
+    if (previousToken.current && previousToken.current !== token) {
+      updatePlace((previous) => previous.point ? { pinCode: previous.pinCode, value: previous.value } : previous);
+    }
+    previousToken.current = token;
+  }, [token]);
 
   useEffect(() => {
     let active = true;
@@ -48,27 +59,28 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     if (!valid) return;
     let active = true;
     const timer = setTimeout(() => {
-      void api<{ ids: string[] }>("coverage?" + new URLSearchParams({ pinCode }), token || undefined).then(({ ids }) => {
-        if (active) setResult({ key, ids });
+      void api<Omit<Coverage, "key">>("coverage?" + new URLSearchParams(locationQuery(pinCode, point)), token || undefined).then(({ ids, distances }) => {
+        if (active) setResult({ key, ids, distances });
       }).catch((error) => {
         if (active) setResult({ key, ids: [], error });
       });
     }, 250);
     return () => { active = false; clearTimeout(timer); };
-  }, [key, pinCode, token, valid, snapshot?.revision, attempt]);
+  }, [key, pinCode, point, token, valid, snapshot?.revision, attempt]);
   useEffect(() => {
     if (!edited.current || (!valid && pinCode)) return;
     void writeStored(storageKey, pinCode ? JSON.stringify({ pinCode, value: locality }) : "", true).catch(() => {});
   }, [pinCode, locality, valid]);
-  const setPinCode = useCallback((value: string, label?: string) => {
+  const setPinCode = useCallback((value: string, label?: string, coordinates?: AreaPoint) => {
     edited.current = true;
     updatePlace((previous) => ({
       pinCode: value, value: label ?? (value === previous.pinCode ? previous.value : ""),
+      point: coordinates ?? (value === previous.pinCode && label === undefined ? previous.point : undefined),
     }));
   }, []);
   const current = valid && result?.key === key ? result : null;
   return <LocationContext.Provider value={{
-    pinCode, locality, setPinCode, ids: current?.ids ?? [], error: current?.error,
+    pinCode, locality, point, setPinCode, ids: current?.ids ?? [], distances: current?.distances ?? {}, error: current?.error,
     checked: Boolean(current && !current.error), checking: valid && !current,
     retry: () => setAttempt((previous) => previous + 1),
   }}>{children}</LocationContext.Provider>;
@@ -141,7 +153,7 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
   }
   function choose(place: VisitPlace) {
     reset();
-    setPinCode(place.pinCode, place.value);
+    setPinCode(place.pinCode, place.value, place.point);
     if (pinCode === place.pinCode && error) retry();
     setEditing(false);
     Keyboard.dismiss();
@@ -163,7 +175,7 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
       }
       const place = await devicePlace(fix, token ?? undefined);
       if (id !== attempt.current) return;
-      setDetected(place);
+      setDetected(place ? { ...place, point: areaPoint(fix) ?? undefined } : null);
       setGps(place ? "idle" : "missing");
     } catch (failure) {
       if (id === attempt.current) setGps(failure instanceof Error && failure.message === "denied" ? "denied" : "missing");
