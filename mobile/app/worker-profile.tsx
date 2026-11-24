@@ -6,6 +6,7 @@ import { normalizeWorkPhone } from "../shared/worker-profile";
 import { useRef, useState } from "react";
 import type { Payload, ProfileCommand, Unit } from "../src/api";
 import { useCopy } from "../src/language";
+import { commission, rateFor } from "../src/pilot-pricing";
 import { useSession } from "../src/session";
 import { Body, Button, Feedback, Field, Heading, Page, Panel, Row, Section } from "../src/ui";
 
@@ -22,11 +23,17 @@ export default function WorkerProfile() {
   const [bioHi, setBioHi] = useState(profile?.bioHi ?? "");
   const [service, setService] = useState(profile?.service ?? "");
   const [skills, setSkills] = useState(profile?.specializations ?? []);
+  const [pilotOffers, setPilotOffers] = useState(profile?.pilotOffers ?? []);
   const [areasText, setAreasText] = useState(profile?.areas.join("\n") ?? "");
   const areas = areasText.split(/[\n;]/).map((area) => area.trim()).filter(Boolean);
   const [pinText, setPinText] = useState(profile?.pinCodes?.join(", ") ?? "");
   const pinCodes = [...new Set(pinText.split(/[\s,]+/).filter(Boolean))];
   const validPins = pinCodes.length > 0 && pinCodes.length <= 20 && pinCodes.every(isPinCode);
+  const pilotRates = pinCodes.includes("110075") ? tasks.filter((task) => task.service === service && skills.includes(task.id))
+    .flatMap((task) => {
+      const rate = rateFor(task.service, task.task, "110075");
+      return rate ? [{ task, rate }] : [];
+    }) : [];
   const [years, setYears] = useState(profile ? String(profile.years) : "");
   const [price, setPrice] = useState(profile ? String(profile.price) : "");
   const [maxPrice, setMaxPrice] = useState(profile ? String(upperEstimate(profile)) : "");
@@ -71,6 +78,7 @@ export default function WorkerProfile() {
   async function saveProfile() {
     const stored = await submit("profile", {
       name, bio, bioHi, service, areas, pinCodes, years: Number(years), price: Number(price), maxPrice: Number(maxPrice), unit, credential: profile?.credential || "", specializations: skills,
+      pilotOffers: pilotRates.map(({ rate }) => rate.id).filter((id) => pilotOffers.includes(id)),
       languages: languages.split(/[,،]/).map((value) => value.trim()).filter(Boolean),
       workPhone,
       plus: plus ? { price: Number(plusPrice), maxPrice: Number(plusMax), includes, includesHi } : null,
@@ -133,8 +141,19 @@ export default function WorkerProfile() {
       <Field label={t("Languages you speak (optional)", "आप कौन-सी भाषाएँ बोलते हैं? (वैकल्पिक)")} placeholder={t("Hindi, English", "हिन्दी, अंग्रेज़ी")}
         hint={t("Separate languages with commas.", "भाषाओं को कॉमा से अलग करें।")} value={languages} onChangeText={setLanguages} maxLength={150} />
     </Panel>
+    {!!pilotRates.length && <Panel tone="info">
+      <Heading size="small">{t("Dwarka pilot offers", "द्वारका के परीक्षण विकल्प")}</Heading>
+      <Body>{t("Choose the offers you accept. Estimated payout uses a 12% labour commission.", "स्वीकार किए जाने वाले विकल्प चुनें। अनुमानित कमाई में 12% श्रम कमीशन है।")}</Body>
+      {pilotRates.map(({ task, rate }) => <Section key={rate.id}>
+        <Body strong>{copy.task(task.service, task.task)}</Body>
+        <Body>{copy.money(rate.price)} · {t("Payout", "कमाई")} {copy.money((rate.price * 100 - commission(rate.price * 100)) / 100)}</Body>
+        {!!rate.plusPrice && <Body>{t("Plus payout", "प्लस की कमाई")} · {copy.money((rate.plusPrice * 100 - commission(rate.plusPrice * 100)) / 100)}</Body>}
+        <Button secondary selected={pilotOffers.includes(rate.id)} label={pilotOffers.includes(rate.id) ? t("Accepted", "स्वीकृत") : t("Accept this rate", "यह दर स्वीकार करें")}
+          onPress={() => setPilotOffers((current) => current.includes(rate.id) ? current.filter((id) => id !== rate.id) : [...current, rate.id])} />
+      </Section>)}
+    </Panel>}
     <Panel tone="info">
-      <Heading size="small">{t("Everyday rate", "एवरीडे की दर")}</Heading>
+      <Heading size="small">{t("Everyday rate for other jobs", "अन्य कामों की एवरीडे दर")}</Heading>
       <Body>{t("Set a starting rate for your regular service.", "अपनी सामान्य सेवा की शुरुआती दर तय करें।")}</Body>
       <Row>
         <Button compact secondary selected={unit === "visit"} label={t("Diagnostic visit", "जाँच की विज़िट")} onPress={() => setUnit("visit")} />

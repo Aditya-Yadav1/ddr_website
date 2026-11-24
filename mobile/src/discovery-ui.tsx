@@ -7,6 +7,8 @@ import { Body, Button, colors, fontFamily, Heading, Panel, Row, ServiceImage } f
 import { tasks } from "./catalog";
 import { ProviderRating } from "./provider-actions";
 import { WorkerCheckBadge } from "./worker-safety";
+import { useLocation } from "./location";
+import { eligible, rateFor } from "./pilot-pricing";
 
 export function WorkerPreview({ person, rating, service, rate, children }: {
   person: Profile; rating?: WorkerRating; service: string; rate?: string; children: ReactNode;
@@ -41,6 +43,8 @@ export function Promises() {
 export function TaskCard({ task, profiles }: { task: typeof tasks[number]; profiles: Profile[] }) {
   const router = useRouter();
   const copy = useCopy();
+  const { pinCode } = useLocation();
+  const rate = rateFor(task.service, task.task, pinCode);
   const workers = profiles.filter((person) => person.service === task.service
     && (person.specializations?.length ? person.specializations.includes(task.id) : task.legacy))
     .sort((a, b) => a.price * (a.unit === "hourly" ? 2 : 1) - b.price * (b.unit === "hourly" ? 2 : 1));
@@ -48,7 +52,9 @@ export function TaskCard({ task, profiles }: { task: typeof tasks[number]; profi
   return <View style={look.task}>
     <Body small>{copy.t(task.name, task.hi)}</Body>
     <Heading size="small">{copy.task(task.service, task.task)}</Heading>
-    {first ? <><Body strong>{copy.rate(first)}</Body>
+    {rate ? <><Body strong>{copy.money(rate.price)} · {rate.repairPrice ? copy.t("inspection", "जाँच") : copy.t("fixed labour", "श्रम का तय शुल्क")}</Body>
+      {!profiles.some((person) => person.service === task.service && eligible(person, rate)) && <Body small>{copy.t("Check worker availability", "काम करने वाले की उपलब्धता देखें")}</Body>}</>
+      : first ? <><Body strong>{copy.rate(first)}</Body>
       <Body small>{first.unit === "visit" ? copy.t("Diagnostic visit · repairs quoted separately", "जाँच की विज़िट · मरम्मत की कीमत अलग") : first.unit === "hourly" ? copy.t("2-hour minimum", "कम से कम 2 घंटे") : copy.t("Package estimate", "पैकेज का अनुमान")}</Body></>
       : <Body small>{copy.t("Check availability by PIN code", "पिन कोड से उपलब्धता जाँचें")}</Body>}
     <Button secondary label={copy.t("View service →", "सेवा देखें →")} onPress={() => router.push({ pathname: "/tasks/[id]", params: { id: task.id } })} />

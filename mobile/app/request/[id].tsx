@@ -2,7 +2,7 @@ import { upperEstimate } from "../../shared/price-range";
 import { SavedAddresses } from "../../src/saved-addresses";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import type { Brief, Payload, Tier, Unit } from "../../src/api";
+import type { Brief, Payload, PilotOffer, Tier, Unit } from "../../src/api";
 import { tasks } from "../../src/catalog";
 import { appointmentDays, appointmentTimes } from "../../src/appointments";
 import { useBookingAction } from "../../src/booking-action";
@@ -13,13 +13,14 @@ import { MaterialOptions, useMaterialLabels } from "../../src/job-materials";
 import { operationId } from "../../src/operation-id";
 import { useSession } from "../../src/session";
 import { PlusBenefits, ServiceOptions } from "../../src/service-options";
+import { eligible, offerFor, PilotChoices, PilotPrice, rateFor } from "../../src/pilot-pricing";
 import { Body, Button, Feedback, Field, Guide, Heading, Page, Panel, PriceNote, Row, Section, TierPrice } from "../../src/ui";
 import { isPinCode } from "../../shared/pin-codes";
 
 type Review = {
   safetyVersion: number;
   intent: string; proId: string; scope: string; area: string; pinCode: string; appointment: string; timing: "" | "now"; contact: string;
-  tier: Tier; expectedPrice: number; expectedMaxPrice: number; expectedUnit: Unit; expectedIncludes: string; expectedIncludesHi: string;
+  tier: Tier; expectedPrice: number; expectedMaxPrice: number; expectedUnit: Unit; expectedIncludes: string; expectedIncludesHi: string; expectedOffer?: string;
   customerName: string; address: string; landmark: string; notes: string; brief: Brief; hours: number;
 };
 
@@ -42,22 +43,29 @@ export default function RequestAppointment() {
   const materialLabels = useMaterialLabels();
   const [brief, setBrief] = useState<Brief>({ problem: "", materials: profile?.unit === "visit" ? "inspect" : "none", readiness: "unknown" });
   const [agreedHours, setAgreedHours] = useState(2);
+  const [partsReady, setPartsReady] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [address, setAddress] = useState("");
   const [landmark, setLandmark] = useState("");
   const [notes, setNotes] = useState("");
   const [review, setReview] = useState<Review | null>(null);
+  const [reviewOffer, setReviewOffer] = useState<PilotOffer | null>(null);
   const [slotRefresh, setSlotRefresh] = useState(0);
   const [slotResult, setSlotResult] = useState<{ key: string; slots: string[]; immediate: boolean; error?: unknown } | null>(null);
   const hours = profile?.hours ?? snapshot?.state.catalog.defaultHours;
   const days = hours && snapshot ? appointmentDays(snapshot.serverTime, hours) : [];
-  const times = hours && profile ? appointmentTimes(hours, profile.unit) : [];
+  const rate = rateFor(profile?.service, scope, pinCode);
+  const offer = offerFor(rate, tier);
+  const unit = offer?.unit ?? profile?.unit;
+  const times = hours && unit ? appointmentTimes(hours, unit) : [];
   const appointment = day && time ? day + "T" + time : "";
   const selectionReady = !isPinCode(params.pinCode) || params.pinCode === pinCode;
   const areaValid = Boolean(selectionReady && checked && profile && ids.includes(profile.id));
   const dateValid = days.includes(day);
   const proId = profile?.id;
   const allowedTasks = service?.tasks.filter((task) => {
+    const pilotRate = rateFor(service.id, task, pinCode);
+    if (pilotRate) return eligible(profile, pilotRate);
     const entry = tasks.find((item) => item.task === task && item.service === service.id);
     return profile?.specializations?.length ? profile.specializations.includes(entry?.id ?? "") : entry?.legacy;
   }) ?? [];
@@ -101,7 +109,7 @@ export default function RequestAppointment() {
     <Heading>{t("Worker unavailable for this PIN", "इस पिन कोड में काम करने वाला उपलब्ध नहीं है")}</Heading>
     <Button label={t("Find matching workers", "उपलब्ध काम करने वाले खोजें")} onPress={() => router.dismissTo("/")} />
   </Page>;
-  const plus = tier === "plus" ? profile?.plus : null;
+  const plus = tier === "plus" ? (rate ? offer : profile?.plus) : null;
   const availability = slotResult?.key === slotKey ? slotResult : null;
   const validSlot = availability?.slots.includes(appointment) ?? false;
   let appointmentIssue = "";
@@ -114,7 +122,8 @@ export default function RequestAppointment() {
   const reviewIssues = [
     !allowedTasks.includes(scope) && t("Choose the task you want done.", "वह काम चुनें जो आप करवाना चाहते हैं।"),
     !brief.problem.trim() && t("Describe the task.", "काम का विवरण लिखें।"),
-    profile?.unit !== "visit" && brief.materials === "inspect" && t("Choose who will bring the materials.", "चुनें कि सामान कौन लाएगा।"),
+    !rate && unit !== "visit" && brief.materials === "inspect" && t("Choose who will bring the materials.", "चुनें कि सामान कौन लाएगा।"),
+    offer && !offer.repairPrice && !partsReady && t("Confirm you have the compatible parts ready.", "पुष्टि करें कि सही पुर्ज़े तैयार हैं।"),
     tier === "plus" && !plus && t("Choose an available service option.", "उपलब्ध सेवा का विकल्प चुनें।"),
     appointmentIssue,
     !customerName.trim() && t("Enter your name.", "अपना नाम लिखें।"),
@@ -122,22 +131,30 @@ export default function RequestAppointment() {
   ].filter((issue): issue is string => typeof issue === "string" && issue.length > 0);
   const valid = reviewIssues.length === 0;
   const reviewedPlus = review?.tier === "plus" ? profile?.plus : null;
-  const offerChanged = Boolean(review && (!profile || (review.tier === "plus" && !reviewedPlus)
+  const currentReviewRate = rateFor(profile?.service, review?.scope, review?.pinCode ?? "");
+  const offerChanged = Boolean(review && (review.expectedOffer
+    ? !currentReviewRate || !eligible(profile, currentReviewRate) || currentReviewRate.id !== review.expectedOffer || pinCode !== review.pinCode
+    : currentReviewRate || !profile || (review.tier === "plus" && !reviewedPlus)
     || review.expectedMaxPrice !== upperEstimate(reviewedPlus ?? profile) || review.expectedPrice !== (reviewedPlus?.price ?? profile.price) || review.expectedUnit !== profile.unit
     || review.expectedIncludes !== (reviewedPlus?.includes || "") || review.expectedIncludesHi !== (reviewedPlus?.includesHi || "")));
   function editReview() {
     setReview(null);
     setSlotRefresh((value) => value + 1);
-    if (tier === "plus" && !profile?.plus) setTier("everyday");
+    if (tier === "plus" && !(rate ? rate.plusPrice : profile?.plus)) setTier("everyday");
   }
   function openReview() {
-    if (!valid || !profile) return;
+    if (!valid || !profile || !unit) return;
+    setReviewOffer(offer);
     setReview({
       safetyVersion: 1, intent: operationId(), proId: profile.id, scope, area: area.trim(), pinCode, appointment, timing: "",
-      contact: "In-app message", tier, expectedPrice: plus?.price ?? profile.price, expectedMaxPrice: upperEstimate(plus ?? profile), expectedUnit: profile.unit,
+      contact: "In-app message", tier, expectedPrice: offer?.price ?? plus?.price ?? profile.price,
+      expectedMaxPrice: offer?.price ?? upperEstimate(tier === "plus" ? profile.plus ?? profile : profile), expectedUnit: unit,
+      ...(offer && { expectedOffer: offer.id }),
       expectedIncludes: plus?.includes || "", expectedIncludesHi: plus?.includesHi || "",
       customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim(),
-      brief: { ...brief, problem: brief.problem.trim() }, hours: agreedHours,
+      brief: { ...brief, problem: brief.problem.trim(), ...(offer && {
+        materials: offer.repairPrice ? "inspect" : "customer", readiness: offer.repairPrice ? "unknown" : "ready",
+      }) }, hours: agreedHours,
     });
   }
   async function submit() {
@@ -154,12 +171,15 @@ export default function RequestAppointment() {
       <Heading size="small">{copy.task(service?.id ?? "", review.scope)}</Heading>
       <Body>{profile?.name}</Body>
       <Body>{copy.appointment(review.appointment, review.timing)}</Body>
+      {reviewOffer ? <><PilotPrice offer={reviewOffer} />
+        <Body small>{t("Customer booking fee", "ग्राहक बुकिंग शुल्क")} · {copy.money(0)}</Body></> : <>
       <TierPrice price={review.expectedPrice} maxPrice={review.expectedMaxPrice} unit={review.expectedUnit} tier={review.tier} />
       {!!review.expectedIncludes && <PlusBenefits includes={review.expectedIncludes} includesHi={review.expectedIncludesHi} />}
       <PriceNote unit={review.expectedUnit} />
       <Body strong>{t("Estimated total", "अनुमानित कुल")}
         {" · "}{copy.range(review.expectedPrice, review.expectedMaxPrice, review.expectedUnit === "hourly" ? review.hours : 1)}</Body>
       {review.expectedUnit === "hourly" && <Body small>{review.hours} {t("agreed hours", "तय घंटे")}</Body>}
+      </>}
       <Body small>{t("Pay the worker directly at the end of the visit.", "विज़िट के अंत में काम करने वाले को सीधे भुगतान करें।")}</Body>
     </Panel>
     <Panel>
@@ -203,24 +223,30 @@ export default function RequestAppointment() {
     <Guide>{!scope ? t("Let’s start with the service option, then tell me what needs doing.", "पहले सेवा का विकल्प चुनें, फिर बताइए कौन-सा काम करवाना है।")
       : !validSlot ? t("When would you like the visit? Pick a time that works for you.", "विज़िट कब चाहिए? अपनी सुविधा का समय चुनें।")
           : t("Looking good. Add your visit details below, and we’ll review it together.", "अच्छा है। नीचे विज़िट की जानकारी भरें, फिर सब एक बार जाँच लेंगे।")}</Guide>
-    <Section>
+    <Panel>
+      <Heading size="small">{t("What needs doing?", "कौन-सा काम करवाना है?")}</Heading>
+      {allowedTasks.map((task) => <Button key={task} secondary selected={scope === task} label={copy.task(service.id, task)}
+        onPress={() => { setScope(task); setTier("everyday"); setPartsReady(false); setTime(""); }} />)}
+      <Field label={t("Describe the task", "काम का विवरण लिखें")} value={brief.problem} maxLength={280} multiline
+        hint={t("Keep your address and phone number out of this brief.", "यहाँ अपना पता या फ़ोन नंबर न लिखें।")}
+        onChangeText={(problem) => setBrief({ ...brief, problem })} />
+    </Panel>
+    {rate ? <Section>
+      <PilotChoices rate={rate} tier={tier} onChange={(value) => { setTier(value); setPartsReady(false); setTime(""); }} />
+      {!rate.repairPrice && <Button secondary selected={partsReady} label={t("I have the compatible parts ready", "मेरे पास सही पुर्ज़े तैयार हैं")}
+        onPress={() => setPartsReady(!partsReady)} />}
+    </Section> : <Section>
       <Heading size="medium">{t("Choose your service option", "सेवा का विकल्प चुनें")}</Heading>
-      <Body small>{t("Everyday covers your selected service. Plus adds the worker’s listed extras.", "एवरीडे में आपकी चुनी हुई सेवा है। प्लस में काम करने वाले की बताई अतिरिक्त सेवाएँ भी हैं।")}</Body>
       <ServiceOptions profile={profile} value={tier} onChange={setTier} />
       <PriceNote unit={profile.unit} />
       {profile.unit === "hourly" && <Panel>
         <Heading size="small">{t("Agree how many hours to book", "काम के घंटे तय करें")}</Heading>
         <Row>{[2, 3, 4, 5, 6, 7, 8].map((quantity) => <Button key={quantity} compact secondary selected={agreedHours === quantity}
           label={String(quantity)} onPress={() => { setAgreedHours(quantity); setTime(""); }} />)}</Row>
-        <Body strong>{t("Estimated total", "अनुमानित कुल")} · {copy.range((plus ?? profile).price, upperEstimate(plus ?? profile), agreedHours)}</Body>
+        <Body strong>{t("Estimated total", "अनुमानित कुल")} · {copy.range((plus ?? profile).price, upperEstimate(tier === "plus" ? profile.plus ?? profile : profile), agreedHours)}</Body>
       </Panel>}
-    </Section>
-    <Panel>
-      <Heading size="small">{t("What needs doing?", "कौन-सा काम करवाना है?")}</Heading>
-      {allowedTasks.map((task) => <Button key={task} secondary selected={scope === task} label={copy.task(service.id, task)} onPress={() => setScope(task)} />)}
-      <Field label={t("Describe the task", "काम का विवरण लिखें")} value={brief.problem} maxLength={280} multiline
-        hint={t("Include quantities or preparation details. Keep your address and phone number out of this brief.", "काम की मात्रा या तैयारी लिखें। यहाँ अपना पता या फ़ोन नंबर न लिखें।")}
-        onChangeText={(problem) => setBrief({ ...brief, problem })} />
+    </Section>}
+    {!rate && <Panel>
       <Body strong>{t("Who brings the materials?", "सामान कौन लाएगा?")}</Body>
       <MaterialOptions value={brief.materials} inspection={profile.unit === "visit"}
         onChange={(materials) => setBrief({ ...brief, materials, readiness: "unknown" })} />
@@ -230,7 +256,7 @@ export default function RequestAppointment() {
         <Button compact secondary selected={brief.readiness === "not_ready"} label={t("Still needed", "अभी चाहिए")}
           onPress={() => setBrief({ ...brief, readiness: "not_ready" })} />
       </Row>}
-    </Panel>
+    </Panel>}
     <Panel>
       <Heading size="small">{t("Appointment", "विज़िट का समय")}</Heading>
       <Body strong>{t("Choose a date (IST)", "तारीख चुनें (IST)")}</Body>

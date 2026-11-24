@@ -11,7 +11,11 @@ export default function CustomerSupport() {
   const router = useRouter();
   const { snapshot, token, changeProfile, error: connectionError } = useSession();
   const { t, task, dateTime } = useCopy();
-  const [category, setCategory] = useState<SupportTicket["category"] | "">(topic === "payment" ? "payment" : job ? "booking" : "");
+  const project = topic === "project";
+  const [category, setCategory] = useState<SupportTicket["category"] | "">(project ? "other" : topic === "payment" ? "payment" : job ? "booking" : "");
+  const [projectPin, setProjectPin] = useState("");
+  const [dimensions, setDimensions] = useState("");
+  const [timeline, setTimeline] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
@@ -33,7 +37,9 @@ export default function CustomerSupport() {
     setBusy(true);
     setError(null);
     setSent(false);
-    const fields = { category, job: booking?.id, message: message.trim() };
+    const fields = { category, job: booking?.id, message: project
+      ? ["Project estimate inquiry", "PIN " + projectPin, "Dimensions " + dimensions.trim(), "Timeline " + timeline.trim(), message.trim()].join("\n")
+      : message.trim() };
     const signature = JSON.stringify(fields);
     try {
       if (submission.current?.signature !== signature) submission.current = { id: operationId(), signature };
@@ -46,20 +52,26 @@ export default function CustomerSupport() {
   }
 
   return <Page>
-    <Heading>{t("Customer Support", "ग्राहक सहायता")}</Heading>
+    <Heading>{project ? t("Request a project estimate", "काम का अनुमान माँगें") : t("Customer Support", "ग्राहक सहायता")}</Heading>
     <Feedback error={connectionError} />
     <Panel tone="info">
-      <Heading size="small">{t("Send us a message", "हमें संदेश भेजें")}</Heading>
+      <Heading size="small">{project ? t("Tell us about the work", "काम के बारे में बताएं") : t("Send us a message", "हमें संदेश भेजें")}</Heading>
+      {project && <Body>{t("HandyHive reviews your brief and replies here with next steps and any survey fee.", "HandyHive आपका विवरण पढ़कर आगे के कदम और सर्वे शुल्क की जानकारी यहाँ देगा।")}</Body>}
       {offlineDemo ? <Body small>{t("Offline demo requests are saved on this device.", "ऑफ़लाइन डेमो के अनुरोध इस डिवाइस पर सहेजे जाते हैं।")}</Body>
         : <Body small>{t("Send a private request and check this page for a reply.", "निजी अनुरोध भेजें और जवाब के लिए यह पेज देखें।")}</Body>}
       {token ? <>
         {booking && <Tag>{task(booking.service, booking.scope)}</Tag>}
-        <Body strong>{t("Choose a topic", "विषय चुनें")}</Body>
+        {project ? <>
+          <Field label={t("Project PIN code", "काम का पिन कोड")} value={projectPin} maxLength={6} keyboardType="number-pad" onChangeText={setProjectPin} />
+          <Field label={t("Approximate dimensions", "अनुमानित माप")} value={dimensions} maxLength={100} onChangeText={setDimensions} />
+          <Field label={t("Preferred timeline", "पसंदीदा समय-सीमा")} value={timeline} maxLength={100} onChangeText={setTimeline} />
+        </> : <><Body strong>{t("Choose a topic", "विषय चुनें")}</Body>
         <Row>{(Object.keys(topics) as SupportTicket["category"][]).map((value) => <Button key={value} secondary compact
-          label={topics[value]} selected={category === value} disabled={busy} onPress={() => setCategory(value)} />)}</Row>
-        <Field label={t("How can we help?", "हम कैसे मदद कर सकते हैं?")} multiline maxLength={1000} value={message}
+          label={topics[value]} selected={category === value} disabled={busy} onPress={() => setCategory(value)} />)}</Row></>}
+        <Field label={project ? t("Scope, materials and exclusions", "काम, सामान और क्या शामिल नहीं है") : t("How can we help?", "हम कैसे मदद कर सकते हैं?")} multiline maxLength={project ? 700 : 1000} value={message}
           onChangeText={(value) => { setMessage(value); setSent(false); }} editable={!busy} />
-        <Button label={t("Send support request", "सहायता अनुरोध भेजें")} disabled={busy || !category || message.trim().length < 10}
+        <Button label={project ? t("Send project brief", "काम का विवरण भेजें") : t("Send support request", "सहायता अनुरोध भेजें")} disabled={busy || !category || message.trim().length < 10
+          || (project && (!/^[1-9]\d{5}$/.test(projectPin) || !dimensions.trim() || !timeline.trim()))}
           onPress={() => void submit()} />
         <Feedback error={error} />
         {sent && <Guide tone="success">{t("Support request submitted.", "सहायता अनुरोध भेज दिया गया।")}</Guide>}

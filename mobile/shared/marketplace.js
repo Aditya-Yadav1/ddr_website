@@ -1,3 +1,5 @@
+const pilot = require("./pilot-pricing");
+
 function createMarketplace(adapter) {
   const city = "Delhi";
   const areas = ["Lajpat Nagar", "Dwarka", "Rohini", "Saket"];
@@ -178,9 +180,10 @@ function createMarketplace(adapter) {
   }
 
   function available(person, area, appointment = "", state = read(), timing = "", scope = "", pinCode) {
+    const rate = pilot.rateFor(person?.service, scope, pinCode);
     return Boolean(person?.published && covers(person, area, pinCode)
-      && servesTask(person, scope)
-      && !slotError(person, { appointment, timing, unit: person.unit }, state));
+      && (rate ? pilot.eligible(person, rate) : servesTask(person, scope))
+      && !slotError(person, { appointment, timing, unit: person.unit, ...(rate && { duration: rate.plusPrice ? 60 : rate.minutes }) }, state));
   }
 
   function serviceArea(location, servedAreas) {
@@ -246,7 +249,7 @@ function createMarketplace(adapter) {
   }
 
   function request({ intent, proId, scope, area, pinCode, appointment = "", timing = "", contact,
-    tier = "everyday", expectedPrice, expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, requestFingerprint, details, brief, hours }) {
+    tier = "everyday", expectedPrice, expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, expectedOffer, requestFingerprint, details, brief, hours }) {
     const state = current();
     const existing = state.requests.find((job) => job.intent === intent
       && (!state.connected || job.customerId === state.account.id)
@@ -263,26 +266,33 @@ function createMarketplace(adapter) {
     if (!trade?.tasks.includes(scope) || !covers(person, area, pinCode)) {
       return { error: pinCode ? "This worker does not serve this PIN code." : "This worker does not serve the requested location.", code: "LOCATION_UNAVAILABLE" };
     }
-    if (brief && !servesTask(person, scope)) {
+    const rate = pilot.rateFor(trade.id, scope, pinCode);
+    if (rate ? !pilot.eligible(person, rate) : brief && !servesTask(person, scope)) {
       return { error: "This worker no longer lists this task.", code: "TASK_UNAVAILABLE" };
     }
-    const plus = tier === "plus" ? person.plus : null;
-    const price = plus?.price ?? person.price;
-    if ((expectedMaxPrice !== undefined && (!brief || expectedMaxPrice !== require("./price-range").upperEstimate(plus ?? person))) || (tier === "plus" && !plus) || (expectedPrice !== undefined
-      && (expectedPrice !== price || expectedUnit !== person.unit
+    const offer = pilot.offerFor(rate, tier);
+    const plus = tier === "plus" ? (rate ? offer : person.plus) : null;
+    const price = offer?.price ?? plus?.price ?? person.price;
+    const unit = offer?.unit ?? person.unit;
+    if ((rate && (!offer || !brief || !details || !appointment || expectedOffer !== offer.id || expectedPrice !== price || expectedMaxPrice !== price))
+      || (!rate && (expectedOffer !== undefined || (expectedMaxPrice !== undefined && (!brief || expectedMaxPrice !== require("./price-range").upperEstimate(plus ?? person)))))
+      || (tier === "plus" && !plus) || (expectedPrice !== undefined
+      && (expectedPrice !== price || expectedUnit !== unit
         || expectedIncludes !== (plus?.includes || "") || expectedIncludesHi !== (plus?.includesHi || "")))) {
       return { error: "This option changed. Review the current rate and inclusions before sending.", code: "OFFER_CHANGED" };
     }
     const job = {
       id: id(), intent, proId, scope, area, appointment, timing: !appointment && timing === "now" ? "now" : "", contact, service: trade.id,
       ...(pinCode && { pinCode }),
-      proName: person.name, price, unit: person.unit, status: "pending",
-      tier, minimumQuantity: person.unit === "hourly" ? 2 : 1,
+      proName: person.name, price, unit, status: "pending",
+      tier, minimumQuantity: unit === "hourly" ? 2 : 1,
       ...(plus && { includes: plus.includes, includesHi: plus.includesHi || "" }),
       ...(requestFingerprint && { requestFingerprint }),
       ...(details && { details }),
-      ...(brief && { agreementVersion: 1, brief, ...(expectedMaxPrice !== undefined && { maxPrice: expectedMaxPrice }), basePaise: expectedMaxPrice !== undefined ? 0 : price * 100 * (person.unit === "hourly" ? hours : 1),
-        ...(person.unit === "hourly" && { agreedHours: hours, duration: hours * 60 }) }),
+      ...(brief && { agreementVersion: 1, brief, ...(!offer && expectedMaxPrice !== undefined && { maxPrice: expectedMaxPrice }),
+        basePaise: !offer && expectedMaxPrice !== undefined ? 0 : price * 100 * (unit === "hourly" ? hours : 1),
+        ...(unit === "hourly" && { agreedHours: hours, duration: hours * 60 }) }),
+      ...(offer && { pilot: offer, duration: offer.minutes }),
       createdAt: now, updatedAt: now, deadline: now + responseWindow, messages: [],
     };
     if (state.connected) {
@@ -325,10 +335,13 @@ function createMarketplace(adapter) {
     if (job.agreementVersion && job.interrupted && action === "complete") {
       return { error: "Resolve the work interruption before closing the job." };
     }
+    if (job.pilot && (action === "start" || next === "completed") && job.quotes?.some((item) => item.status === "sent")) {
+      return { error: "Resolve the pending price change before continuing the job.", code: "QUOTE_REQUIRED" };
+    }
     if (next === "accepted") {
       const person = pro(job.proId, state);
       if ((job.pinCode || job.agreementVersion) && (!person || !covers(person, job.area, job.pinCode)
-        || (job.agreementVersion && !servesTask(person, job.scope)))) {
+        || (job.agreementVersion && !job.pilot && !servesTask(person, job.scope)))) {
         return { error: "The worker's coverage or task skills changed.", code: "TASK_UNAVAILABLE" };
       }
       const error = slotError(person, job, state, now);
@@ -358,7 +371,8 @@ function createMarketplace(adapter) {
     if (next === "cancelled") job.cancellation = { role, reason, at: now };
     if (job.agreementVersion && next === "completed") {
       const quote = job.quotes?.find((item) => item.version === job.activeQuote);
-      job.bill = { totalPaise: quote?.totalPaise ?? job.basePaise, quoteVersion: quote?.version ?? null, at: now };
+      job.bill = { totalPaise: quote?.totalPaise ?? job.basePaise, quoteVersion: quote?.version ?? null, at: now,
+        ...(job.pilot && { quantity: quote?.quantity ?? job.pilot.quantity }) };
       if (action === "diagnostic-only") job.diagnosticOnly = true;
     }
     if (!activeStatuses.includes(next)) {

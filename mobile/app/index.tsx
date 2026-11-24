@@ -1,13 +1,15 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { matchingTasks } from "../src/catalog";
+import { matchingTasks, tasks } from "../src/catalog";
+import { look, TaskCard } from "../src/discovery-ui";
+import { rateFor } from "../src/pilot-pricing";
 import { information } from "../src/information";
 import { useDiscovery } from "../src/discovery";
 import { useCopy } from "../src/language";
 import { LocationField, useLocation } from "../src/location";
 import { useSession } from "../src/session";
-import { Body, Button, colors, Feedback, Field, Heading, heroImage, Page, Row, ServiceImage } from "../src/ui";
+import { Body, Button, colors, Feedback, Field, Heading, heroImage, Page, Panel, Row, ServiceImage } from "../src/ui";
 
 export default function Home() {
   const router = useRouter();
@@ -16,11 +18,12 @@ export default function Home() {
   const { t, service: serviceName, task: taskName } = useCopy();
   const { token } = useSession();
   const { snapshot, error, retry } = useDiscovery();
-  const { pinCode, checked, ids } = useLocation();
+  const { pinCode, checked, ids, setPinCode } = useLocation();
   const [query, setQuery] = useState("");
   const results = useMemo(() => query.trim() ? matchingTasks(query).slice(0, 6) : [], [query]);
   const services = snapshot?.state.catalog.services ?? [];
   const localServices = checked ? new Set(snapshot?.state.profiles.filter((person) => ids.includes(person.id)).map((person) => person.service)) : null;
+  const pilotTasks = tasks.filter((task) => rateFor(task.service, task.task, pinCode));
   return <Page>
     {!wide && <View style={styles.top}><Row>
       {wide && <Button compact secondary label={t("All services", "सभी सेवाएँ")} onPress={() => router.push({ pathname: "/services/[id]", params: { id: "all" } })} />}
@@ -39,12 +42,24 @@ export default function Home() {
         {checked && <Body small>{ids.length ? t(`Showing professionals serving ${pinCode}`, `${pinCode} में उपलब्ध काम करने वाले`) : t("No professionals currently serve this PIN code. You can still browse services.", "इस पिन कोड में अभी कोई काम करने वाला नहीं है। आप सेवाएँ देख सकते हैं।")}</Body>}
       </View><Image source={heroImage} accessibilityLabel={t("Home services illustration", "घरेलू सेवा की तस्वीर")} style={[styles.heroImage, wide && styles.heroImageWide]} resizeMode="cover" /></View>
     <Feedback error={error} />{!!error && <Button secondary label={t("Try again", "फिर कोशिश करें")} onPress={retry} />}
+    {pilotTasks.length ? <View style={styles.section}>
+      <Heading size="medium">{t("Dwarka pilot prices", "द्वारका की परीक्षण कीमतें")}</Heading>
+      <View style={look.grid}>{pilotTasks.map((task) => <TaskCard key={task.id} task={task} profiles={snapshot?.state.profiles.filter((person) => ids.includes(person.id)) ?? []} />)}</View>
+    </View> : snapshot?.state.demoPinCode && <Panel tone="info">
+      <Heading size="small">{t("Try the Dwarka booking pilot", "द्वारका बुकिंग परीक्षण आज़माएँ")}</Heading>
+      <Button secondary label={t("See pilot prices for PIN 110075", "पिन 110075 की परीक्षण कीमतें देखें")} onPress={() => setPinCode("110075", "Dwarka")} />
+    </Panel>}
     <View style={styles.section}><Heading size="medium">{t("Explore services", "सेवाएँ देखें")}</Heading>
       <View style={styles.grid}>{services.map((service) => <Pressable key={service.id} accessibilityRole="link" onPress={() => router.push({ pathname: "/services/[id]", params: { id: service.id } })} style={[styles.category, wide && styles.categoryWide]}>
         <ServiceImage service={service.id} /><Text style={styles.categoryName}>{serviceName(service.id, service.name)}</Text><Body small>{service.note}</Body>
         {localServices && <Body small>{localServices.has(service.id) ? t("Professionals in your area", "आपके इलाके में काम करने वाले") : t("Currently unavailable here", "यहाँ अभी उपलब्ध नहीं")}</Body>}
       </Pressable>)}</View>
       <Button secondary label={t("See every service →", "सभी सेवाएँ देखें →")} onPress={() => router.push({ pathname: "/services/[id]", params: { id: "all" } })} /></View>
+    <Panel>
+      <Heading size="small">{t("Renovation or custom carpentry", "रिनोवेशन या कस्टम बढ़ई का काम")}</Heading>
+      <Body>{t("Share your project details for a scoped estimate.", "काम का विवरण दें ताकि उसका अनुमान तैयार हो सके।")}</Body>
+      <Button secondary label={t("Submit a project brief", "काम का विवरण भेजें")} onPress={() => router.push({ pathname: "/support", params: { topic: "project" } })} />
+    </Panel>
     <View style={styles.info}><Heading size="medium">{t("How booking works", "बुकिंग कैसे होती है")}</Heading>
       <View style={[styles.steps, wide && styles.stepsWide]}>{[
         [t("1. Choose the work", "1. काम चुनें"), t("Tell us what needs attention and enter your PIN code.", "काम बताएं और अपना पिन कोड डालें।")],

@@ -13,6 +13,7 @@ const agreements = require("./booking-agreements.js");
 const { readTicket, matchesTicket } = require("./mobile/shared/support-tickets.js");
 const validateProfile = require("./mobile/shared/worker-profile.js");
 const demoWorkers = require("./mobile/shared/demo-workers.js");
+const pilot = require("./mobile/shared/pilot-pricing");
 const { isPinCode, demoPinCode, demoPinCodes } = require("./mobile/shared/pin-codes.js");
 const { readReview } = require("./mobile/shared/worker-reviews.js");
 const migrate = require("./db-migrations.js");
@@ -212,8 +213,8 @@ function transact(account, action, query, native = false) {
 function snapshot(market, state, query, native) {
   const account = state.account;
   const directory = state.profiles.filter((profile) => profile.published && bookable(account, profile)).map((profile) => {
-    const { id, name, service, bio, bioHi, areas, pinCodes, price, maxPrice, unit, years, languages, hours, immediate, published, plus, specializations, sample } = profile;
-    return { id, name, service, bio, bioHi, areas, pinCodes, price, maxPrice, unit, years, languages, hours, immediate, published, plus, specializations, sample, trust: trust.summary(profile),
+    const { id, name, service, bio, bioHi, areas, pinCodes, price, maxPrice, unit, years, languages, hours, immediate, published, plus, specializations, sample, pilotOffers } = profile;
+    return { id, name, service, bio, bioHi, areas, pinCodes, price, maxPrice, unit, years, languages, hours, immediate, published, plus, specializations, sample, pilotOffers, trust: trust.summary(profile),
       ...(!native && { credential: profile.credential }) };
   });
   const params = { appointment: query.get("appointment") || "", timing: query.get("timing") || "" };
@@ -553,7 +554,7 @@ function mutate(action, market, state, input, native = false, requestFingerprint
       details = { customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim() };
     }
     const result = market.request({ intent, proId, scope, area: area.trim() || pinCode, pinCode, appointment, timing, contact, requestFingerprint,
-      ...(usesOffer && { tier, expectedPrice, expectedMaxPrice: input.expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, details, brief, hours }),
+      ...(usesOffer && { tier, expectedPrice, expectedMaxPrice: input.expectedMaxPrice, expectedOffer: input.expectedOffer, expectedUnit, expectedIncludes, expectedIncludesHi, details, brief, hours }),
     });
     if (result.job && (config.production || input.safetyVersion === 1) && !result.job.safetyVersion) {
       const current = market.current();
@@ -569,12 +570,18 @@ function mutate(action, market, state, input, native = false, requestFingerprint
   if (native && action === "demo-worker-step") {
     const worker = state.profiles.find((person) => person.id === job.proId);
     if (!config.previewWorkers || input.role !== "customer" || !worker?.sample) throw failure(404, "Demo visit unavailable.");
-    if (input.change === "quote" && job.maxPrice !== undefined && job.status === "arrived" && !job.activeQuote && job.quotes?.at(-1)?.status !== "sent") {
+    if (input.change === "quote" && (job.maxPrice !== undefined || job.pilot?.repairPrice) && job.status === "arrived" && !job.activeQuote && job.quotes?.at(-1)?.status !== "sent") {
       const quantity = job.agreedHours || 1;
       return agreements.change("quote-send", market, state, job, {
         role: "pro", version: job.quotes?.at(-1)?.version || 0, minutes: job.duration || 60,
-        items: [{ label: job.scope, amountPaise: Math.round((job.price + job.maxPrice) / 2) * quantity * 100 }],
+        items: job.pilot ? [] : [{ label: job.scope, amountPaise: Math.round((job.price + job.maxPrice) / 2) * quantity * 100 }],
         materials: "none", exclusions: "", creditPaise: 0,
+      }, failure);
+    }
+    if (input.change === "one-tap" && job.pilot?.quantity === 2 && job.quotes?.at(-1)?.status !== "sent") {
+      return agreements.change("quote-send", market, state, job, {
+        role: "pro", version: job.quotes?.at(-1)?.version ?? 0, minutes: job.pilot.minutes,
+        pilotAction: "reduce", items: [], materials: "customer", exclusions: "Second fitting could not be completed.",
       }, failure);
     }
     if (!["accept", "arrive", "diagnostic-only", "start", "complete"].includes(input.change)) {
@@ -763,6 +770,8 @@ function nativeMutation(action, market, state, input) {
   if (action === "request" && input.safetyVersion !== undefined) values.push(input.safetyVersion);
   if (action === "request" && input.pinCode !== undefined) values.push({ pinCode: input.pinCode });
   if (action === "request" && input.expectedMaxPrice !== undefined) values.push({ expectedMaxPrice: input.expectedMaxPrice });
+  if (action === "request" && input.expectedOffer !== undefined) values.push({ expectedOffer: input.expectedOffer });
+  if (action === "quote-send" && input.pilotAction !== undefined) values.push({ pilotAction: input.pilotAction });
   if (action === "transition" && input.reason !== undefined) values.push(input.reason);
   const fingerprint = sha256(JSON.stringify([action, values]));
   const previous = getOperation.get(state.account.id, operationId);
@@ -827,11 +836,17 @@ async function handleApi(req, res, url, native) {
     const profiles = store.profiles.map((profile) => ({ id: profile.id, name: profile.name, service: profile.service,
       published: profile.published, trust: trust.summary(profile) }));
     const statuses = Object.groupBy(store.requests, (job) => job.status);
+    const pilotBookings = store.requests.filter((job) => job.pilot);
+    const pilotCompleted = pilotBookings.filter((job) => job.status === "completed");
+    const shadowFees = pilotCompleted.reduce((sum, job) => sum + pilot.earnings(job, agreements.balance(job).receivedPaise).fee, 0);
     return send(res, 200, {
       metrics: { accounts: db.prepare("SELECT COUNT(*) AS n FROM accounts").get().n,
         professionals: profiles.length, openSupport: db.prepare("SELECT COUNT(*) AS n FROM support_tickets WHERE status='open'").get().n,
         activeBookings: store.requests.filter((job) => ["pending", "accepted", "en_route", "arrived", "in_progress"].includes(job.status)).length,
         completedBookings: (statuses.completed || []).length },
+      pilotPricing: { bookings: pilotBookings.length, completed: pilotCompleted.length,
+        plusFulfilled: pilotCompleted.filter((job) => job.tier === "plus" && job.bill?.quantity === 2).length,
+        plusCompleted: pilotCompleted.filter((job) => job.tier === "plus").length, shadowFees },
       professionals: profiles,
       verification: db.prepare("SELECT worker,requested FROM verification_requests ORDER BY requested DESC LIMIT 100").all(),
       support: db.prepare("SELECT id,owner,job,category,message,created FROM support_tickets WHERE status='open' ORDER BY created DESC LIMIT 100").all(),
@@ -928,7 +943,8 @@ async function handleApi(req, res, url, native) {
       const person = market.pro(proId, state);
       if (!bookable(account, person)) return { slots: [], immediate: false };
       return { slots: slots.filter((slot) => market.available(person, "", slot, state, "", scope, pinCode)
-          && (person.unit !== "hourly" || !market.slotError(person, { appointment: slot, duration: hours * 60 }, state))),
+          && (person.unit !== "hourly" || pilot.rateFor(person.service, scope, pinCode)
+            || !market.slotError(person, { appointment: slot, duration: hours * 60 }, state))),
         immediate: timing === "now" && market.available(person, "", "", state, "now", "", pinCode) };
     });
     return send(res, 200, result);

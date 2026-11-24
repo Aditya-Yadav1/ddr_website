@@ -10,6 +10,7 @@ import { api } from "../../src/api";
 import { appointmentDays } from "../../src/appointments";
 import { useSession } from "../../src/session";
 import { SaveWorker } from "../../src/saved-workers";
+import { eligible, offerFor, rateFor } from "../../src/pilot-pricing";
 import { look, TaskCard, WorkerPreview } from "../../src/discovery-ui";
 
 import { Body, Button, Feedback, Field, Guide, Heading, MainNav, Page, Panel, Row } from "../../src/ui";
@@ -52,17 +53,18 @@ export default function ServiceOptions() {
   const needle = query.trim().toLowerCase();
   const maximum = Number(budget);
   const taskId = tasks.find((task) => task.service === params.id && task.task === params.scope)?.id;
+  const rate = rateFor(params.id, params.scope, pinCode);
+  const selectedOffer = offerFor(rate, plus ? "plus" : "everyday") ?? offerFor(rate, "everyday");
   const dates = appointmentDays(snapshot.serverTime, { ...catalog.defaultHours, days: [0, 1, 2, 3, 4, 5, 6] });
   const checkedSlots = availability?.key === resultKey && !availability.error && availabilityKey ? availability.options : null;
   const chooseSlot = (slots?: string[]) => clock ? slots?.find((slot) => slot.slice(11) === clock) : slots?.[0];
-  const priceOf = (person: typeof profiles[number]) => (plus ? person.plus!.price : person.price) * (person.unit === "hourly" ? 2 : 1);
+  const priceOf = (person: typeof profiles[number]) => selectedOffer?.price ?? (plus ? person.plus!.price : person.price) * (person.unit === "hourly" ? 2 : 1);
   const found = profiles.filter((person) => {
-    if (!validService || (category && person.service !== category.id) || (plus && !person.plus)) return false;
-    if (taskId && (person.specializations?.length ? !person.specializations.includes(taskId) : Number(taskId.split("-").at(-1)) >= 4)) return false;
+    if (!validService || (category && person.service !== category.id) || (!rate && plus && !person.plus)) return false;
+    if (rate ? !eligible(person, rate) : taskId && (person.specializations?.length ? !person.specializations.includes(taskId) : Number(taskId.split("-").at(-1)) >= 4)) return false;
     if (checkedSlots && !chooseSlot(checkedSlots[person.id])) return false;
     if (!checked || !ids.includes(person.id)) return false;
-    const price = plus ? person.plus!.price : person.price;
-    if (maximum > 0 && price * (person.unit === "hourly" ? 2 : 1) > maximum) return false;
+    if (maximum > 0 && priceOf(person) > maximum) return false;
     const service = catalog.services.find((item) => item.id === person.service);
     const terms = [person.name, person.bio, person.bioHi, service?.name, ...person.areas,
       ...(service ? [copy.service(service.id, service.name), ...service.tasks.flatMap((task) => [task, copy.task(service.id, task)])] : [])];
@@ -96,7 +98,7 @@ export default function ServiceOptions() {
     {found.length > 0 && <Guide>{t("Workers serving PIN ", "इस पिन कोड में काम करने वाले: ") + pinCode}</Guide>}
     <Row>
       <Button secondary compact selected={filters} label={t("Search & budget", "खोज और बजट")} onPress={() => setFilters(!filters)} />
-      <Button secondary compact selected={plus} label={t("Offers Plus", "प्लस उपलब्ध")} onPress={() => setPlus(!plus)} />
+      {(!rate || rate.plusPrice) && <Button secondary compact selected={plus} label={rate ? t("Two taps with Plus", "प्लस में दो नल") : t("Offers Plus", "प्लस उपलब्ध")} onPress={() => setPlus(!plus)} />}
       <Button secondary compact selected={priceSort} label={t("Starting price: low to high", "शुरुआती कीमत: कम से ज़्यादा")} onPress={() => setPriceSort(!priceSort)} />
       {!!query && <Button secondary compact label={t("Search", "खोज") + " · " + query + " ×"} onPress={() => setQuery("")} />}
     </Row>
@@ -132,12 +134,13 @@ export default function ServiceOptions() {
     </Panel>}
     {found.map((person) => <WorkerPreview key={person.id} person={person} rating={ratings.find((rating) => rating.pro === person.id)}
       service={catalog.services.find((item) => item.id === person.service)?.name ?? person.service}
-      rate={plus && person.plus ? copy.rate({ price: person.plus.price, maxPrice: person.plus.maxPrice, unit: person.unit }) : undefined}>
+      rate={selectedOffer ? copy.money(selectedOffer.price) + " · " + (selectedOffer.repairPrice ? t("inspection", "जाँच") : t("fixed labour", "श्रम का तय शुल्क"))
+        : plus && person.plus ? copy.rate({ price: person.plus.price, maxPrice: person.plus.maxPrice, unit: person.unit }) : undefined}>
       {checkedSlots && !!chooseSlot(checkedSlots[person.id]) &&
         <Body strong>{t("Available", "उपलब्ध")} · {copy.appointment(chooseSlot(checkedSlots[person.id])!)}</Body>}
       <Row>
         <Button compact secondary tone="info" label={t("View worker", "काम करने वाले की जानकारी देखें")} onPress={() => router.push({ pathname: "/providers/[id]",
-          params: { id: person.id, scope: params.scope || "", pinCode, tier: plus ? "plus" : "everyday",
+          params: { id: person.id, scope: params.scope || "", pinCode, tier: plus && (!rate || rate.plusPrice) ? "plus" : "everyday",
             appointment: (checkedSlots && chooseSlot(checkedSlots[person.id])) || "" } })} />
         <SaveWorker worker={person.id} />
       </Row>

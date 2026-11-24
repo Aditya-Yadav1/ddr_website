@@ -1,6 +1,7 @@
 "use strict";
 
 const { isPinCode } = require("./pin-codes");
+const pilot = require("./pilot-pricing");
 
 function normalizeWorkPhone(value) {
   if (typeof value !== "string" || value.length > 24) return null;
@@ -36,6 +37,7 @@ function validateProfile(market, input, previous, account, native, failure) {
     if (workPhone === null) throw failure(400, "Enter a valid Indian work mobile number or leave the field empty.", "INVALID_WORK_PHONE");
   }
   let specializations = previous?.service === service ? previous.specializations : undefined;
+  let pilotOffers = previous?.service === service ? previous.pilotOffers : undefined;
   if (native && Object.hasOwn(input, "specializations")) {
     const validIds = market.service(service).tasks.map((task) => market.taskId(service, task));
     if (!Array.isArray(input.specializations) || input.specializations.length > validIds.length
@@ -44,6 +46,17 @@ function validateProfile(market, input, previous, account, native, failure) {
     }
     specializations = [...new Set(input.specializations)];
   }
+  if (native && Object.hasOwn(input, "pilotOffers")) {
+    const allowed = (specializations ?? []).map((id) => pilot.version + ":" + id)
+      .filter((id) => Object.hasOwn(pilot.card, id.split(":")[1]));
+    if (!Array.isArray(input.pilotOffers) || input.pilotOffers.length > allowed.length
+      || input.pilotOffers.some((id) => !allowed.includes(id)) || (input.pilotOffers.length && !pins.includes(pilot.pin))) {
+      throw failure(400, "Select a task skill and serve the pilot PIN before opting into its rate.");
+    }
+    pilotOffers = [...new Set(input.pilotOffers)];
+  }
+  pilotOffers = pilotOffers?.filter((id) => pins?.includes(pilot.pin)
+    && specializations?.some((task) => id === pilot.version + ":" + task));
   if (native && Object.hasOwn(input, "plus")) {
     const offer = input.plus;
     if (offer === null) plus = null;
@@ -59,7 +72,7 @@ function validateProfile(market, input, previous, account, native, failure) {
     throw failure(400, "Update your Plus option in the app before changing its service, price or billing unit.", "INVALID_PLUS");
   }
   return {
-    ...previous, id: account.id, name, bio, service, unit, years, price, maxPrice, areas, languages, plus, specializations, workPhone,
+    ...previous, id: account.id, name, bio, service, unit, years, price, maxPrice, areas, languages, plus, specializations, workPhone, pilotOffers,
     ...(pins && { pinCodes: [...new Set(pins)] }),
     ...(native && typeof input.bioHi === "string" && { bioHi: text(input.bioHi, 360) }),
     credential: text(input.credential, 100), published: native ? previous?.published ?? true : true, sample: previous?.sample === true,

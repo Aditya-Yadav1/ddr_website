@@ -31,6 +31,7 @@ function QuoteSummary({ quote, base }: { quote: Quote; base: number }) {
     {base > 0 && <Body>{t("Original agreed charge", "मूल तय शुल्क")} · {money(base / 100)}</Body>}
     {quote.items.map((item, index) => <Body key={index}>{item.label} · {money(item.amountPaise / 100)}</Body>)}
     {quote.creditPaise > 0 && <Body>{t("Diagnostic fee credit", "जाँच शुल्क की छूट")} · −{money(quote.creditPaise / 100)}</Body>}
+    {!!quote.adjustmentPaise && <Body>{t("Second fitting removed", "दूसरा नल हटाया गया")} · −{money(-quote.adjustmentPaise / 100)}</Body>}
     <Body strong>{t("Total", "कुल")} · {money(quote.totalPaise / 100)}</Body>
     <Body small>{materials[quote.materials]} · {quote.minutes} {t("min", "मिनट")}</Body>
     {!!quote.exclusions && <Body small>{t("Excluded work", "शामिल नहीं है")} · {quote.exclusions}</Body>}
@@ -47,6 +48,7 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
   const [minutes, setMinutes] = useState(String(booking.duration ?? 60));
   const [credit, setCredit] = useState("");
   const [exclusions, setExclusions] = useState("");
+  const [pilotAction, setPilotAction] = useState(booking.pilot?.repairPrice ? "repair" : "materials");
   const brief = booking.brief;
   if (!brief) return null;
   const base = booking.basePaise ?? 0;
@@ -54,11 +56,16 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
   const approved = booking.quotes?.find((quote) => quote.version === booking.activeQuote);
   const canQuote = role === "pro" && ["arrived", "in_progress"].includes(booking.status);
   const canApprove = role === "customer" && latest?.status === "sent" && ["arrived", "in_progress"].includes(booking.status);
-  const amounts = items.map(({ label, amount }) => ({ label: label.trim(), amountPaise: toPaise(amount) }));
-  const creditPaise = credit ? toPaise(credit) : 0;
-  const quoteTotal = base + amounts.reduce((sum, item) => sum + (item.amountPaise || 0), 0) - (creditPaise || 0);
+  const offer = booking.pilot;
+  const amounts = items.filter((item) => !offer || item.label || item.amount).map(({ label, amount }) => ({ label: label.trim(), amountPaise: toPaise(amount) }));
+  const creditPaise = offer ? (pilotAction === "repair" ? base : 0) : credit ? toPaise(credit) : 0;
+  const labourChange = !offer ? 0 : pilotAction === "repair" ? (offer.repairPrice ?? 0) * 100 : pilotAction === "add" ? (offer.addOn ?? 0) * 100
+    : pilotAction === "reduce" ? (offer.everydayPrice - offer.price) * 100 : 0;
+  const quoteTotal = base + labourChange + amounts.reduce((sum, item) => sum + (item.amountPaise || 0), 0) - (creditPaise || 0);
   const quoteValid = amounts.every((item) => item.label && item.amountPaise > 0 && item.amountPaise <= 10_000_000)
-    && Number(minutes) >= 15 && Number(minutes) <= 720 && creditPaise >= 0 && creditPaise <= base && quoteTotal >= base;
+    && (amounts.length > 0 || (offer && pilotAction !== "materials"))
+    && Number(minutes) >= (pilotAction === "add" ? 60 : offer?.minutes ?? 15) && Number(minutes) <= 720
+    && creditPaise >= 0 && creditPaise <= base && (offer ? quoteTotal > 0 : quoteTotal >= base);
   function updateItem(index: number, patch: Partial<typeof items[number]>) {
     setItems((current) => current.map((item, at) => at === index ? { ...item, ...patch } : item));
   }
@@ -81,7 +88,7 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
     {booking.diagnosticOnly && <Tag>{t("Diagnostic visit completed", "जाँच की विज़िट पूरी हुई")}</Tag>}
     {approved && <QuoteSummary quote={approved} base={base} />}
     {latest && latest.version !== approved?.version && <QuoteSummary quote={latest} base={base} />}
-    {latest?.status === "sent" && approved && <Body strong>{t("Change to agreed total", "तय कुल में बदलाव")} · {money((latest.totalPaise - approved.totalPaise) / 100)}</Body>}
+    {latest?.status === "sent" && (approved || offer) && <Body strong>{t("Change to agreed total", "तय कुल में बदलाव")} · {money((latest.totalPaise - (approved?.totalPaise ?? base)) / 100)}</Body>}
     {canApprove && <Row>
       <Button disabled={locked} label={t("Approve quote", "कोटेशन मंज़ूर करें")}
         onPress={() => void send("quote-respond", { version: latest.version, decision: "accepted" })} />
@@ -92,8 +99,17 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
       disabled={locked} onPress={() => setComposing(true)} />}
     {composing && canQuote && <Section>
       <Heading size="small">{t("Itemised work quote", "काम का विस्तृत कोटेशन")}</Heading>
+      {offer && <Section>
+        {!!offer.repairPrice && <Body>{t("Rate-card repair labour", "मरम्मत का तय श्रम शुल्क")} · {money(offer.repairPrice)}</Body>}
+        {!!offer.repairPrice && <Body>{t("Inspection credit", "जाँच शुल्क की छूट")} · −{money(base / 100)}</Body>}
+        {!offer.repairPrice && <Row>
+          <Button compact secondary selected={pilotAction === "materials"} label={t("Materials only", "केवल सामान")} onPress={() => setPilotAction("materials")} />
+          {!!offer.addOn && offer.quantity === 1 && <Button compact secondary selected={pilotAction === "add"} label={t("Add second tap", "दूसरा नल जोड़ें") + " · " + money(offer.addOn)} onPress={() => { setPilotAction("add"); setMinutes(String(Math.max(60, Number(minutes)))); }} />}
+          {offer.quantity === 2 && <Button compact secondary selected={pilotAction === "reduce"} label={t("Complete one tap", "एक नल का काम पूरा करें") + " · " + money(offer.everydayPrice)} onPress={() => setPilotAction("reduce")} />}
+        </Row>}
+      </Section>}
       {items.map((item, index) => <Section key={index}>
-        <Field label={t("Work or material", "काम या सामान")} value={item.label} maxLength={120} onChangeText={(label) => updateItem(index, { label })} />
+        <Field label={offer ? t("Part or material", "पुर्जा या सामान") : t("Work or material", "काम या सामान")} value={item.label} maxLength={120} onChangeText={(label) => updateItem(index, { label })} />
         <Field label={t("Charge (₹)", "शुल्क (₹)")} value={item.amount} maxLength={10} keyboardType="decimal-pad" onChangeText={(amount) => updateItem(index, { amount })} />
         {items.length > 1 && <Button compact secondary label={t("Remove item", "आइटम हटाएँ")} onPress={() => setItems(items.filter((_, at) => at !== index))} />}
       </Section>)}
@@ -102,12 +118,12 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
       <Field label={t("What’s excluded?", "क्या शामिल नहीं है?")} value={exclusions} maxLength={220} onChangeText={setExclusions} />
       <Field label={t("Updated duration in minutes", "नई अवधि मिनटों में")} value={minutes} maxLength={3} keyboardType="number-pad"
         onChangeText={(value) => setMinutes(value.replace(/\D/g, ""))} />
-      {base > 0 && booking.unit === "visit" && <Field label={t("Credit towards repair (₹)", "मरम्मत पर जाँच शुल्क की छूट (₹)")}
+      {!offer && base > 0 && booking.unit === "visit" && <Field label={t("Credit towards repair (₹)", "मरम्मत पर जाँच शुल्क की छूट (₹)")}
         value={credit} maxLength={10} keyboardType="decimal-pad" onChangeText={setCredit} />}
       <Body strong>{t("Quote total", "कोटेशन का कुल")} · {money(quoteTotal / 100)}</Body>
       <Row>
         <Button label={t("Send quote for approval", "मंज़ूरी के लिए कोटेशन भेजें")} disabled={locked || !quoteValid} onPress={async () => {
-          if (await send("quote-send", { version: latest?.version ?? 0, items: amounts, materials, minutes: Number(minutes), exclusions, creditPaise })) {
+          if (await send("quote-send", { version: latest?.version ?? 0, items: amounts, materials, minutes: Number(minutes), exclusions, creditPaise, ...(offer && { pilotAction }) })) {
             setComposing(false);
             setItems([{ label: "", amount: "" }]);
             setCredit("");

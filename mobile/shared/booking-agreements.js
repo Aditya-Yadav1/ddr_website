@@ -59,22 +59,38 @@ function change(action, market, state, job, input, failure) {
     const quotes = job.quotes ?? [];
     if (input.version !== (quotes.at(-1)?.version ?? 0)) return conflict("The quote has changed. Review the latest version.");
     validate(quotes.length < 30, "This job has reached its quote limit.");
-    validate(Array.isArray(input.items) && input.items.length >= 1 && input.items.length <= 8, "Enter up to eight quote items.");
+    const offer = job.pilot;
+    const choice = input.pilotAction || (offer?.repairPrice ? "repair" : "materials");
+    const labourChange = !offer ? null : {
+      repair: offer.repairPrice ? offer.repairPrice * 100 : null,
+      add: offer.addOn && offer.quantity === 1 ? offer.addOn * 100 : null,
+      reduce: offer.quantity === 2 ? (offer.everydayPrice - offer.price) * 100 : null,
+      materials: offer.repairPrice ? null : 0,
+    };
+    validate(!offer || (Object.hasOwn(labourChange, choice) && labourChange[choice] !== null), "Choose a rate-card change for this booking.");
+    validate(Array.isArray(input.items) && input.items.length <= 8 && (input.items.length >= 1 || (offer && choice !== "materials")), "Enter up to eight quote items.");
     const items = input.items.map((item) => {
       const label = clean(item?.label, 120);
       validate(label && whole(item?.amountPaise, 1, 10_000_000), "Check the quote descriptions and prices.");
       return { label, amountPaise: item.amountPaise };
     });
-    const { creditPaise, minutes } = input;
+    const creditPaise = offer ? (choice === "repair" ? job.basePaise : 0) : input.creditPaise;
+    const { minutes } = input;
+    const labourLines = { repair: "Approved leak or fault repair labour", add: "Second tap fitting", reduce: "Remove second tap fitting" };
+    const adjustmentPaise = offer && choice === "reduce" ? labourChange.reduce : 0;
+    if (offer && labourChange[choice] > 0) items.unshift({ label: labourLines[choice], amountPaise: labourChange[choice] });
     validate(materials.includes(input.materials) && whole(minutes, 15, 720)
       && whole(creditPaise, 0, job.unit === "visit" ? job.basePaise : 0)
       && typeof input.exclusions === "string" && input.exclusions.length <= 220, "Check materials, duration, exclusions and visit credit.");
+    if (offer) validate(minutes >= (choice === "add" ? 60 : offer.minutes), "Allow enough time for the rate-card work.");
     const subtotal = items.reduce((sum, item) => sum + item.amountPaise, 0);
     validate(creditPaise <= subtotal, "The visit credit cannot exceed the repair charge.");
     const previous = quotes.find(pending);
     if (previous) previous.status = "superseded";
     job.quotes = [...quotes, { version: input.version + 1, items, creditPaise, minutes, materials: input.materials,
-      exclusions: input.exclusions.trim(), totalPaise: job.basePaise + subtotal - creditPaise, status: "sent", at: now }];
+      ...(offer && { adjustmentPaise, labourPaise: job.basePaise + labourChange[choice] - creditPaise,
+        quantity: choice === "reduce" ? 1 : choice === "add" ? 2 : offer.quantity }),
+      exclusions: input.exclusions.trim(), totalPaise: job.basePaise + subtotal - creditPaise + adjustmentPaise, status: "sent", at: now }];
     return save();
   }
   if (action === "quote-respond") {
@@ -133,7 +149,7 @@ function change(action, market, state, job, input, failure) {
     const reason = clean(input.reason, 180);
     const start = typeof input.appointment === "string" ? market.appointmentTime(input.appointment) : NaN;
     const approved = job.quotes?.find((quote) => quote.version === job.activeQuote);
-    const minimum = Math.max((job.agreedHours ?? 0) * 60, approved?.minutes ?? 15);
+    const minimum = Math.max((job.agreedHours ?? 0) * 60, approved?.minutes ?? job.pilot?.minutes ?? 15);
     validate(history.length < 20 && reason && start > now && whole(input.minutes, minimum, 720), "Choose a future time and allow enough time for the agreed work.");
     const error = market.slotError(market.pro(job.proId, state), { ...job, appointment: input.appointment, duration: input.minutes }, state, now);
     if (error) return conflict(error);

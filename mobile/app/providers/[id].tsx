@@ -9,6 +9,7 @@ import { PinGate, VisitPin, useLocation } from "../../src/location";
 import { ProviderActions, ProviderRating } from "../../src/provider-actions";
 import { SaveWorker } from "../../src/saved-workers";
 import { PlusBenefits } from "../../src/service-options";
+import { eligible as pilotEligible, offerFor, PilotPrice, rateFor } from "../../src/pilot-pricing";
 import { useSession } from "../../src/session";
 import { activeStatuses, Body, Button, Feedback, Heading, Page, Panel, PriceNote, RatingScore, Row, Section, TierPrice } from "../../src/ui";
 import { TrustDetails, WorkerCheckBadge } from "../../src/worker-safety";
@@ -27,7 +28,8 @@ export default function WorkerDetails() {
   const worker = snapshot?.state.profiles.find((person) => person.id === params.id);
   const service = snapshot?.state.catalog.services.find((item) => item.id === worker?.service);
   const selectionReady = !isPinCode(params.pinCode) || params.pinCode === pinCode;
-  const eligible = selectionReady && checked && !!worker && ids.includes(worker.id);
+  const rate = rateFor(worker?.service, params.scope, pinCode);
+  const eligible = selectionReady && checked && !!worker && ids.includes(worker.id) && (!rate || pilotEligible(worker, rate));
   const key = eligible ? JSON.stringify([params.id, pinCode, token]) : "";
 
   useEffect(() => {
@@ -56,8 +58,9 @@ export default function WorkerDetails() {
   const rating = snapshot.state.ratings?.find((item) => item.pro === worker.id);
   const appointment = snapshot.state.requests.find((job) => job.proId === worker.id && job.customerId === snapshot.state.account.id
     && activeStatuses.includes(job.status));
-  const plus = params.tier === "plus" ? worker.plus : null;
+  const plus = params.tier === "plus" ? (rate ? offerFor(rate, "plus") : worker.plus) : null;
   const tier = plus ? "plus" : "everyday";
+  const offer = offerFor(rate, tier);
   const workPhone = data?.details?.workPhone;
   return <Page footer={<Button label={t("Book this worker", "इस काम करने वाले को बुक करें")} onPress={() =>
     router.push(token ? { pathname: "/request/[id]", params: { ...params, id: worker.id, pinCode, tier } } : { pathname: "/sign-in", params: { role: "customer", next: JSON.stringify({ ...params, id: worker.id, pinCode, tier }) } })} />}>
@@ -71,9 +74,10 @@ export default function WorkerDetails() {
       {!!worker.languages?.length && <Body small>{t("Languages", "भाषाएँ")} · {worker.languages.join(", ")}</Body>}
       {params.scope && <Body strong>{copy.task(service.id, params.scope)}</Body>}
       {params.appointment && <Body small>{copy.appointment(params.appointment)}</Body>}
-      <TierPrice price={plus?.price ?? worker.price} maxPrice={(plus ?? worker).maxPrice} unit={worker.unit} tier={tier} />
+      {offer ? <PilotPrice offer={offer} /> : <>
+      <TierPrice price={worker.plus && plus ? worker.plus.price : worker.price} maxPrice={(plus ? worker.plus : worker)?.maxPrice} unit={worker.unit} tier={tier} />
       {plus && <PlusBenefits includes={plus.includes} includesHi={plus.includesHi} />}
-      <PriceNote unit={worker.unit} />
+      <PriceNote unit={worker.unit} /></>}
     </Panel>
     <Panel><TrustDetails trust={worker.trust} /></Panel>
     <Panel>

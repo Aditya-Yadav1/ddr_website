@@ -2,6 +2,7 @@
 
 const createMarketplace = require("../shared/marketplace");
 const agreements = require("../shared/booking-agreements");
+const pilot = require("../shared/pilot-pricing");
 const { readTicket, matchesTicket } = require("../shared/support-tickets");
 const validateProfile = require("../shared/worker-profile");
 const workers = require("../shared/demo-workers");
@@ -305,7 +306,8 @@ function dispatch(data, route, token, input = {}) {
     const person = people.find((profile) => profile.id === params.get("proId"));
     const duration = Math.min(8, Math.max(2, Number(params.get("hours")) || 2)) * 60;
     return { slots: params.getAll("slot").filter((slot) => market.available(person, "", slot, state, "", scope, pinCode)
-      && (person.unit !== "hourly" || !market.slotError(person, { appointment: slot, duration }, state))),
+      && (person.unit !== "hourly" || pilot.rateFor(person.service, scope, pinCode)
+        || !market.slotError(person, { appointment: slot, duration }, state))),
     immediate: params.get("timing") === "now" && market.available(person, "", "", state, "now", "", pinCode) };
   }
   if (bookingCommands.has(action)) {

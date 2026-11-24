@@ -1,4 +1,4 @@
-import { canReview } from "../../shared/booking-agreements";
+import { balance, canReview } from "../../shared/booking-agreements";
 import { BookingSafety } from "../../src/worker-safety";
 import { VisitProgress, VisitTracking } from "../../src/visit-tracking";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -11,6 +11,7 @@ import { useCopy } from "../../src/language";
 import { paymentBalance, PaymentControls } from "../../src/payment-controls";
 import { useSession } from "../../src/session";
 import { PlusBenefits } from "../../src/service-options";
+import { earnings, PilotPrice } from "../../src/pilot-pricing";
 import { BookingReport, VisitControls } from "../../src/visit-controls";
 import { SaveWorker } from "../../src/saved-workers";
 import { activeStatuses, Body, BookingStatus, Button, Feedback, Field, Guide, Heading, Page, Panel, PriceNote, Row, Section, Tag, TierPrice } from "../../src/ui";
@@ -37,6 +38,10 @@ function DemoVisit({ booking, locked, send }: BookingControls) {
       ? <Button disabled={locked} label={t("Confirm demo arrival", "डेमो आगमन की पुष्टि करें")}
         onPress={() => void send("arrival-confirm", { confirmed: true })} />
       : <Button disabled={locked} label={step.label} onPress={() => void send("demo-worker-step", { change: step.change })} />}
+    {!needsConfirmation && booking.status === "arrived" && booking.quotes?.at(-1)?.status !== "sent" && !booking.activeQuote && <>
+      {!!booking.pilot?.repairPrice && <Button secondary disabled={locked} label={t("Get demo repair quote", "डेमो मरम्मत कोटेशन लें")} onPress={() => void send("demo-worker-step", { change: "quote" })} />}
+      {booking.pilot?.quantity === 2 && <Button secondary disabled={locked} label={t("Simulate one tap only", "केवल एक नल का डेमो")} onPress={() => void send("demo-worker-step", { change: "one-tap" })} />}
+    </>}
   </Panel>;
 }
 
@@ -63,6 +68,7 @@ export default function BookingDetails() {
   const reviewed = snapshot.state.reviewed?.includes(job);
   const paid = canReview(booking);
   const { due, reported } = paymentBalance(booking);
+  const payout = booking.pilot && earnings(booking, balance(booking).receivedPaise);
   const actions: Partial<Record<Booking["status"], { change: string; label: string }[]>> = {
     pending: [{ change: "accept", label: t("Accept request", "अनुरोध स्वीकार करें") }, { change: "decline", label: t("Decline request", "अनुरोध अस्वीकार करें") }],
     accepted: [{ change: "depart", label: t("On my way", "मैं रास्ते में हूँ") }, { change: "arrive", label: t("Mark arrival", "पहुँचने की सूचना दें") }],
@@ -108,9 +114,15 @@ export default function BookingDetails() {
       <VisitProgress status={booking.status} />
       <Body strong>{worker ? copy.area(booking.area) : booking.proName + " · " + copy.area(booking.area)}</Body>
       <Body>{copy.appointment(booking.appointment, booking.timing)}</Body>
-      <TierPrice price={booking.price} maxPrice={booking.maxPrice} legacy={booking.maxPrice === undefined} unit={booking.unit} tier={booking.tier} minimumQuantity={booking.minimumQuantity} />
-      {!!booking.includes && <PlusBenefits includes={booking.includes} includesHi={booking.includesHi} />}
-      {booking.maxPrice !== undefined && <PriceNote unit={booking.unit} />}
+      {booking.pilot ? <>
+        <PilotPrice offer={booking.pilot} />
+        {booking.bill?.quantity && <Body>{t("Completed quantity", "पूरी मात्रा")} · {booking.bill.quantity}</Body>}
+        {worker && payout && <Body strong>{t("Trial worker payout before expenses", "खर्च से पहले परीक्षण कमाई")} · {copy.money(payout.payout / 100)}</Body>}
+      </> : <>
+        <TierPrice price={booking.price} maxPrice={booking.maxPrice} legacy={booking.maxPrice === undefined} unit={booking.unit} tier={booking.tier} minimumQuantity={booking.minimumQuantity} />
+        {!!booking.includes && <PlusBenefits includes={booking.includes} includesHi={booking.includesHi} />}
+        {booking.maxPrice !== undefined && <PriceNote unit={booking.unit} />}
+      </>}
       <Body small>{t("Estimated duration", "अनुमानित अवधि")} · {booking.duration ?? (booking.unit === "hourly" ? 120 : 60)} {t("min", "मिनट")}</Body>
       {booking.status === "pending" && <Body small>{t("Response due by", "जवाब देने की समय सीमा")} · {copy.dateTime(booking.deadline)}</Body>}
     </Panel>

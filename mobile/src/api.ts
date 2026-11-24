@@ -11,6 +11,13 @@ export type Hours = { days: number[]; start: string; end: string; buffer: number
 export type Unit = "visit" | "hourly" | "fixed";
 export type Tier = "everyday" | "plus";
 export type Plus = { price: number; maxPrice?: number; includes: string; includesHi?: string };
+export type PilotRate = {
+  id: string; price: number; minutes: number; description: string; hi: string;
+  addOn?: number; plusPrice?: number; repairPrice?: number;
+};
+export type PilotOffer = PilotRate & {
+  everydayPrice: number; quantity: number; unit: Unit; includes: string; includesHi: string; basisPoints: number;
+};
 export type Profile = {
   sample?: boolean;
   workPhone?: string;
@@ -33,6 +40,7 @@ export type Profile = {
   published: boolean;
   plus?: Plus | null;
   specializations?: string[];
+  pilotOffers?: string[];
 };
 export type Role = "customer" | "pro";
 export type BookingUpdate = { id?: string; job: string; role: Role; label: string; created: number; read?: boolean };
@@ -40,6 +48,7 @@ export type Materials = "customer" | "worker" | "none" | "inspect";
 export type Brief = { problem: string; materials: Materials; readiness: "ready" | "not_ready" | "unknown" };
 export type QuoteItem = { label: string; amountPaise: number };
 export type Quote = {
+  adjustmentPaise?: number; labourPaise?: number; quantity?: number;
   version: number; items: QuoteItem[]; creditPaise: number; totalPaise: number; minutes: number;
   materials: Exclude<Materials, "inspect">; exclusions: string; status: "sent" | "accepted" | "rejected" | "superseded";
 };
@@ -90,10 +99,11 @@ export type Booking = {
   agreementVersion?: 1;
   brief?: Brief;
   basePaise?: number;
+  pilot?: PilotOffer;
   agreedHours?: number;
   activeQuote?: number;
   quotes?: Quote[];
-  bill?: { totalPaise: number; quoteVersion: number | null; at: number };
+  bill?: { totalPaise: number; quoteVersion: number | null; at: number; quantity?: number };
   diagnosticOnly?: boolean;
   payments?: Payment[];
   checkout?: { mode: "demo" | "razorpay-test"; amountPaise: number; reference?: string; url?: string };

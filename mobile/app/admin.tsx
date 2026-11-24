@@ -6,6 +6,7 @@ import { Body, Button, Feedback, Field, Heading, Page, Panel, Row, Section } fro
 
 type AdminOverview = {
   metrics: { accounts: number; professionals: number; openSupport: number; activeBookings: number; completedBookings: number };
+  pilotPricing?: { bookings: number; completed: number; plusFulfilled: number; plusCompleted: number; shadowFees: number };
   professionals: { id: string; name: string; service: string; published: boolean; trust: { suspended: boolean; checks: Record<string, { status: string }> } }[];
   verification: { worker: string; requested: number }[];
   support: { id: string; owner: string; job: string; category: string; message: string; created: number }[];
@@ -15,7 +16,7 @@ type AdminOverview = {
 };
 export default function Admin() {
   const { token, snapshot } = useSession();
-  const { t, dateTime } = useCopy();
+  const { t, dateTime, money } = useCopy();
   const [data, setData] = useState<AdminOverview | null>(null);
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
@@ -47,6 +48,12 @@ export default function Admin() {
     <Feedback error={error} />{!data && <Button secondary label={t("Load operations", "संचालन जानकारी लोड करें")} onPress={() => setRefresh((value) => value + 1)} />}
     {data && <>
       <Row>{Object.entries(data.metrics).map(([key, value]) => <Panel key={key}><Body small>{key.replace(/([A-Z])/g, " $1")}</Body><Heading size="medium">{value}</Heading></Panel>)}</Row>
+      {data.pilotPricing && <Panel>
+        <Heading size="small">{t("Dwarka pricing pilot", "द्वारका मूल्य परीक्षण")}</Heading>
+        <Body>{data.pilotPricing.completed} / {data.pilotPricing.bookings} {t("bookings completed", "बुकिंग पूरी हुईं")}</Body>
+        <Body>{data.pilotPricing.plusFulfilled} / {data.pilotPricing.plusCompleted} {t("completed Plus bookings delivered both fittings", "पूरी प्लस बुकिंग में दोनों नल लगे")}</Body>
+        <Body strong>{t("Simulated fees on confirmed labour", "पक्के श्रम भुगतान पर परीक्षण शुल्क")} · {money(data.pilotPricing.shadowFees / 100)}</Body>
+      </Panel>}
       <Section><Heading size="medium">{t("Verification requests", "जाँच के अनुरोध")}</Heading>
         {!data.verification.length && <Body>{t("No requests waiting", "कोई अनुरोध बाकी नहीं")}</Body>}
         {data.verification.map((item) => <Panel key={item.worker}><Heading size="small">{workerName(item.worker)}</Heading><Body small>{dateTime(item.requested)}</Body>
