@@ -10,6 +10,12 @@ The website and Android/iOS app use the same Expo and React Native screens in `m
 
 After deployment, open the Render URL on your phone. Choose **Customer** or **Worker** and sign in by SMS. Workers must complete the existing verification process and publish their service PINs before customers can book them. See the [operator guide](SECURITY_AND_LAUNCH.md). To check a deployment, set `EXPO_PUBLIC_HANDYHIVE_API_URL` to its HTTPS origin followed by `/api/v1` and run `node scripts/check-api.js --website`.
 
+### Connected testing with invited accounts
+
+Use an HTTPS tunnel to a loopback listener on a computer you control. Build the connected website with `npm run build:web`. Start `node server.js` with `NODE_ENV=production`, `HANDYHIVE_PHONE_MODE=invite`, a separate persistent `HANDYHIVE_DB`, the tunnel origin as `HANDYHIVE_PUBLIC_ORIGIN`, and a random `HANDYHIVE_SIGNUP_INVITE` of at least 24 URL-safe characters. Keep the invite and database out of Git. Share the invite directly with the participants.
+
+Each participant creates a username and password. Use the existing [admin grant](ADMIN_SETUP.md) and worker consent and review procedures before making a worker bookable. SMS sign-in, simulated checkout and online payment collection are unavailable in this mode. Accounts and bookings persist in SQLite. The tunnel URL is available while the computer and both processes are running.
+
 ### GitHub Pages browser demo
 
 The [Pages deployment workflow](.github/workflows/pages.yml) publishes the browser demo on manual dispatch. In the GitHub repository, set **Settings → Pages → Source** to **GitHub Actions**, then run **Publish HandyHive browser demo** from **Actions**. Use the HTTPS service URL from the production host for real accounts and bookings.

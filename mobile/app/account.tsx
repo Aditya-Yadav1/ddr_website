@@ -85,7 +85,7 @@ export default function Account() {
       {!!account?.email && <Body>{account.email}</Body>}
       <Body small>{account?.googleLinked ? t("Google account linked", "Google खाता जुड़ा है") : handle.startsWith("phone_") ? t("Signed in with your mobile number", "मोबाइल नंबर से साइन इन है") : t("Signed in", "साइन इन है")}</Body>
       {!!account?.phone && <Body>{t("Verified phone: ", "सत्यापित फ़ोन: ") + account.phone}</Body>}
-      {!offlineDemo && !account?.phone && <>
+      {!offlineDemo && snapshot?.state.phoneMode !== "invite" && !account?.phone && <>
         <Heading size="small">{t("Verify a mobile number", "मोबाइल नंबर सत्यापित करें")}</Heading>
         {challenge ? <><Body small>{challenge.previewCode ? t("Local preview code: ", "स्थानीय प्रीव्यू कोड: ") + challenge.previewCode : t("Enter the code sent by SMS.", "एसएमएस से आया कोड डालें।")}</Body>
           <Field label={t("Six-digit code", "छह अंकों का कोड")} value={code} onChangeText={(value) => setCode(value.replace(/\D/g, ""))} keyboardType="number-pad" maxLength={6} />

@@ -6,6 +6,7 @@ const { randomUUID, createHash } = require("node:crypto");
 const { once } = require("node:events");
 const { existsSync, mkdtempSync, rmSync, rmdirSync } = require("node:fs");
 const { request } = require("node:http");
+const { createServer } = require("node:net");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { createInterface } = require("node:readline");
@@ -41,13 +42,15 @@ async function setup(t, overrides = {}) {
     const stdout = createInterface({ input: child.stdout });
     try {
       const [line] = await once(stdout, "line", { signal: AbortSignal.timeout(5000) });
-      origin = line.match(/http:\/\/127\.0\.0\.1:\d+$/)?.[0];
+      origin = overrides.HANDYHIVE_PUBLIC_ORIGIN && overrides.HANDYHIVE_PORT
+        ? "http://127.0.0.1:" + overrides.HANDYHIVE_PORT : line.match(/http:\/\/127\.0\.0\.1:\d+$/)?.[0];
       assert.ok(origin, line);
     } finally {
       stdout.close();
     }
   }
   await start();
+  const publicHost = overrides.HANDYHIVE_PUBLIC_ORIGIN && new URL(overrides.HANDYHIVE_PUBLIC_ORIGIN).host;
 
   async function api(action, { body, token, browser = false, headers = {} } = {}) {
     const url = origin + (browser ? "/api/" : "/api/v1/") + action;
@@ -57,6 +60,7 @@ async function setup(t, overrides = {}) {
       const req = request(url, {
         method: payload === undefined ? "GET" : "POST",
         headers: {
+          ...(publicHost && { Host: publicHost }),
           ...(payload === undefined ? {} : { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }),
           ...(token ? { Authorization: "Bearer " + token } : {}),
           ...headers,
@@ -78,7 +82,7 @@ async function setup(t, overrides = {}) {
   }
 
   async function register(handle) {
-    const result = await api("register", { body: { handle, password } });
+    const result = await api("register", { body: { handle, password, invite: overrides.HANDYHIVE_SIGNUP_INVITE } });
     assert.equal(result.status, 200, result.body.error);
     return { token: result.body.session.token, id: result.body.state.account.id, result };
   }
@@ -132,6 +136,44 @@ function booking(proId, appointment = "") {
     area: "Saket", pinCode: "110017", contact: "In-app message",
   };
 }
+
+test("invited accounts share a booking only after a separate worker passes operator checks", async (t) => {
+  const listener = createServer().listen(0, "127.0.0.1");
+  await once(listener, "listening");
+  const port = listener.address().port;
+  await new Promise((resolve) => listener.close(resolve));
+  const { api, register, registerWorker, inDatabase, stop, start } = await setup(t, {
+    NODE_ENV: "production", HANDYHIVE_HOST: "127.0.0.1", HANDYHIVE_PORT: String(port),
+    HANDYHIVE_PUBLIC_ORIGIN: "https://asaan.example.com", HANDYHIVE_PHONE_MODE: "invite",
+    HANDYHIVE_SIGNUP_INVITE: "invited-integration-test-only",
+  });
+  assert.equal((await api("discover")).status, 401);
+  assert.equal((await api("register", { body: { handle: "outside", password, invite: "incorrect" } })).status, 403);
+  const worker = await registerWorker();
+  const customer = await register("test-customer");
+  assert.equal((await api("phone-start", { token: customer.token, body: { phone: "+919876543210" } })).status, 404);
+  assert.deepEqual((await api("coverage?pinCode=110017", { token: customer.token })).body.ids, []);
+  const consent = await api("verification-request", { token: worker.token, body: { consent: "worker-checks-v1" } });
+  assert.equal(consent.status, 200);
+  inDatabase((db) => {
+    const trust = require("../worker-trust")(db, false, true);
+    const workerProfile = consent.body.state.profile;
+    for (const kind of ["identity", "background", "skills"]) {
+      trust.review(workerProfile, { kind, status: "verified", reviewer: "test operator",
+        reference: "isolated test evidence", expiresAt: Date.now() + 86400000 });
+    }
+  });
+  assert.deepEqual((await api("coverage?pinCode=110017", { token: customer.token })).body.ids, [worker.id]);
+  const appointment = new Date(Date.now() + 2 * 86400000 + 19800000).toISOString().slice(0, 10) + "T10:00";
+  const booked = await api("request", { token: customer.token, body: booking(worker.id, appointment) });
+  assert.equal(booked.status, 200, booked.body.error);
+  await stop();
+  await start();
+  const loggedIn = await api("login", { body: { handle: "test-worker", password } });
+  assert.equal(loggedIn.status, 200, loggedIn.body.error);
+  assert.equal(loggedIn.body.state.profile.trust.phoneVerified, false);
+  assert.equal(loggedIn.body.state.requests[0].id, booked.body.jobId);
+});
 
 test("live location belongs to booking participants only and stops at arrival", async (t) => {
   const { api, register, registerWorker, inDatabase } = await setup(t);

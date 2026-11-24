@@ -90,6 +90,7 @@ export function DemoLocationButton({ pin }: { pin?: string }) {
 
 export function LocationField({ compact = false }: { compact?: boolean }) {
   const { pinCode, locality, setPinCode, checked, checking, ids, error, retry } = useLocation();
+  const { token } = useSession();
   const { t } = useCopy();
   const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState("");
@@ -114,7 +115,7 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
         const searches: Promise<VisitPlace[]>[] = [];
         if (Platform.OS === "web") searches.push(searchPostalDirectory(term));
         if (!offlineDemo) searches.push(api<{ suggestions: VisitPlace[] }>(
-          "locations?" + new URLSearchParams({ q: term, postal: "1" })).then((result) => result.suggestions));
+          "locations?" + new URLSearchParams({ q: term, postal: "1" }), token ?? undefined).then((result) => result.suggestions));
         const results = await Promise.allSettled(searches);
         const places = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
         if (active) setRemote({ term, places: places.filter((place) => isPinCode(place.pinCode)), failed: results.every((result) => result.status === "rejected") });
@@ -123,7 +124,7 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
       }
     }, 350);
     return () => { active = false; clearTimeout(timer); };
-  }, [term, searchable, collapsed]);
+  }, [term, searchable, collapsed, token]);
   const result = remote?.term === term ? remote : null;
   const local = searchable ? localPlaces(term) : [];
   const choices = [...local, ...(result?.places ?? [])].filter((place, index, list) =>
@@ -160,7 +161,7 @@ export function LocationField({ compact = false }: { compact?: boolean }) {
         setGps("idle");
         return;
       }
-      const place = await devicePlace(fix);
+      const place = await devicePlace(fix, token ?? undefined);
       if (id !== attempt.current) return;
       setDetected(place);
       setGps(place ? "idle" : "missing");

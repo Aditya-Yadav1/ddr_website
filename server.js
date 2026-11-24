@@ -19,9 +19,9 @@ const { readReview } = require("./mobile/shared/worker-reviews.js");
 const migrate = require("./db-migrations.js");
 const firebaseAuth = require("./firebase-auth.js");
 const siteMetadata = require("./site-metadata.js");
-const firebaseConfig = firebaseAuth.publicConfig(process.env);
-const verifyFirebase = firebaseConfig ? firebaseAuth.verifier(process.env) : null;
 const config = require("./server-config.js")(process.env);
+const firebaseConfig = config.invitedTest ? null : firebaseAuth.publicConfig(process.env);
+const verifyFirebase = firebaseConfig ? firebaseAuth.verifier(process.env) : null;
 const { createOnlinePayments, reserve: reserveCheckout, record: recordCheckout } = require("./online-payments");
 const onlinePayments = createOnlinePayments(process.env, config);
 const requestAddress = (req) => require("./server-config.js").clientAddress(req, config.trustProxy);
@@ -34,7 +34,7 @@ const port = Number(process.env.HANDYHIVE_PORT || 4174);
 const appPreview = process.env.HANDYHIVE_APP_PREVIEW !== "0" ? path.join(__dirname, "mobile", "dist") : null;
 let origin = config.publicOrigin || "http://127.0.0.1:" + port;
 const phoneMode = process.env.HANDYHIVE_PHONE_MODE || "preview";
-if (!["preview", "twilio"].includes(phoneMode)) throw new Error("HANDYHIVE_PHONE_MODE must be preview or twilio.");
+if (!["preview", "twilio", "invite"].includes(phoneMode)) throw new Error("Invalid account sign-in mode.");
 const twilio = createTwilio(process.env);
 const dbPath = process.env.HANDYHIVE_DB || path.join(process.env.LOCALAPPDATA || require("node:os").homedir(),
   "HandyHive", twilio ? "verified.sqlite" : "preview.sqlite");
@@ -84,14 +84,14 @@ db.prepare(`INSERT OR IGNORE INTO auth_mode SELECT 1,
   CASE WHEN EXISTS (SELECT 1 FROM accounts) OR EXISTS (SELECT 1 FROM phone_challenges)
        OR EXISTS (SELECT 1 FROM phone_limits) THEN 'preview' ELSE ? END`).run(phoneMode);
 if (db.prepare("SELECT mode FROM auth_mode WHERE id=1").get().mode !== phoneMode) {
-  throw new Error("Use a separate database for preview accounts and verified phone accounts.");
+  throw new Error("Use a separate database for each account sign-in mode.");
 }
 const updates = createBookingUpdates(db, twilio?.sendBooking, () => JSON.parse(getStore.get().body).requests);
 migrate(db);
 const firebaseIdentity = db.prepare("SELECT accounts.id, accounts.handle FROM firebase_identities JOIN accounts ON accounts.id=firebase_identities.owner WHERE uid=?");
 const linkFirebase = db.prepare("INSERT INTO firebase_identities(uid,owner,created) VALUES (?,?,?)");
 const upsertAccountProfile = db.prepare("INSERT INTO account_profiles(owner,full_name,email,photo,updated) VALUES (?,?,?,?,?) ON CONFLICT(owner) DO UPDATE SET full_name=CASE WHEN account_profiles.full_name='' THEN excluded.full_name ELSE account_profiles.full_name END,email=excluded.email,photo=excluded.photo,updated=excluded.updated");
-const trust = createTrust(db, phoneMode === "twilio");
+const trust = createTrust(db, phoneMode === "twilio", config.invitedTest);
 const listSupport = db.prepare("SELECT id, job, category, message, created, status, response FROM support_tickets WHERE owner=? ORDER BY created DESC, rowid DESC");
 const findSupport = db.prepare("SELECT job, category, message FROM support_tickets WHERE owner=? AND id=?");
 const insertSupport = db.prepare("INSERT INTO support_tickets (id, owner, job, category, message, created) VALUES (?, ?, ?, ?, ?, ?)");
@@ -291,6 +291,7 @@ function sessionToken(req, native) {
 }
 
 async function startPhone(input, req) {
+  if (config.invitedTest) throw failure(404, "This site uses invited accounts.");
   const phone = typeof input.phone === "string" ? input.phone.replace(/[ ()-]/g, "") : "";
   if (!/^\+91[6-9]\d{9}$/.test(phone)) throw failure(400, "Enter an Indian mobile number with +91.");
   const now = Date.now();
@@ -320,6 +321,7 @@ async function startPhone(input, req) {
 }
 
 async function verifyPhone(input, linkingAccount = null) {
+  if (config.invitedTest) throw failure(404, "This site uses invited accounts.");
   if (typeof input.challenge !== "string" || typeof input.code !== "string" || !/^\d{6}$/.test(input.code)) {
     throw failure(400, "Enter the six-digit code.");
   }
@@ -366,6 +368,12 @@ function signIn(action, input, req) {
     throw failure(400, "Use a username of 3 to 32 letters, numbers, underscores or hyphens and a password of 12 to 128 characters.");
   }
   limitAuth(req);
+  if (config.invitedTest && action === "register") {
+    const invite = typeof input.invite === "string" ? input.invite.trim() : "";
+    if (!crypto.timingSafeEqual(Buffer.from(sha256(invite), "hex"), Buffer.from(sha256(process.env.HANDYHIVE_SIGNUP_INVITE), "hex"))) {
+      throw failure(403, "Enter the invitation code supplied by the organiser.");
+    }
+  }
   let account = accountByHandle.get(handle);
   if (action === "register") {
     if (account) throw failure(409, "This username is taken.");
@@ -801,6 +809,9 @@ async function handleApi(req, res, url, native) {
   const token = sessionToken(req, native);
   const readAccount = () => token ? sessions.account.get(sha256(token), Date.now()) || null : null;
   const snapshotFor = (account, action = () => ({})) => transact(account, action, url.searchParams, native);
+  if (config.invitedTest && (!native || (!["health", "config", "login", "register"].includes(action) && !readAccount()))) {
+    throw failure(401, "Sign in to continue.");
+  }
 
   if (native && action === "visit-location") {
     if (!["GET", "POST"].includes(req.method)) throw failure(405, "Method unavailable.");

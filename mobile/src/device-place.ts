@@ -24,10 +24,10 @@ export async function deviceFix(): Promise<GpsFix> {
   return { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy };
 }
 
-export async function devicePlace(coords: GpsFix): Promise<VisitPlace | null> {
+export async function devicePlace(coords: GpsFix, token?: string): Promise<VisitPlace | null> {
   if (Platform.OS === "web") {
     // Postal-area lookup only needs neighbourhood-level coordinates.
-    const { place } = await api<{ place: VisitPlace | null }>("locations", undefined, {
+    const { place } = await api<{ place: VisitPlace | null }>("locations", token, {
       latitude: Number(coords.latitude.toFixed(3)), longitude: Number(coords.longitude.toFixed(3)),
     });
     return place;

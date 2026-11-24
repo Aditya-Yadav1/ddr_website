@@ -17,6 +17,7 @@ export default function SignIn() {
   const [code, setCode] = useState("");
   const [handle, setHandle] = useState("");
   const [password, setPassword] = useState("");
+  const [invite, setInvite] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
@@ -24,7 +25,11 @@ export default function SignIn() {
     if (offlineDemo) return;
     let active = true;
     void api<{ phoneMode: PhoneMode; firebase?: { apiKey: string; authDomain: string; projectId: string; appId: string } | null }>("config").then(async (config) => {
-      if (active) { setPhoneMode(config.phoneMode); setGoogleReady(Boolean(config.firebase)); }
+      if (active) {
+        setPhoneMode(config.phoneMode);
+        setGoogleReady(Boolean(config.firebase));
+        if (config.phoneMode === "invite") setMode("login");
+      }
       if (active && config.firebase) {
         try { const google = await import("../src/google-auth"); google.configureGoogle(config.firebase); const idToken = await google.finishGoogleRedirect(); if (idToken && active) await auth("google-sign-in", { idToken }); }
         catch (failure) { if (active) setError(failure); }
@@ -54,7 +59,7 @@ export default function SignIn() {
     try {
       if (role === "customer" || role === "worker") await chooseRole(role);
       if (offlineDemo) await auth("demo-sign-in", { account: role === "worker" ? "worker-demo" : "customer-demo" });
-      else if (mode !== "phone") await auth(mode, { handle, password });
+      else if (mode !== "phone") await auth(mode, { handle, password, ...(phoneMode === "invite" && mode === "register" && { invite: invite.trim() }) });
       else if (challenge) await auth("phone-verify", { challenge: challenge.challenge, code });
       else {
         const digits = phone.replace(/\D/g, "");
@@ -87,13 +92,16 @@ export default function SignIn() {
     <Panel><Body>{t("Try this workspace with a sample account.", "नमूना खाते से आज़माएँ।")}</Body>
       <Feedback error={error} /><Button label={t("Sign in to preview", "प्रीव्यू में साइन इन करें")} disabled={busy} onPress={() => void submit()} /></Panel>
   </Page>;
-  const ready = mode !== "phone" ? Boolean(handle.trim() && password) : challenge ? /^\d{6}$/.test(code) : /^(?:91)?[6-9]\d{9}$/.test(phone.replace(/\D/g, ""));
+  const invited = phoneMode === "invite";
+  const ready = mode !== "phone" ? Boolean(handle.trim() && password && (!invited || mode !== "register" || invite.trim()))
+    : Boolean(phoneMode && (challenge ? /^\d{6}$/.test(code) : /^(?:91)?[6-9]\d{9}$/.test(phone.replace(/\D/g, ""))));
   return <Page>
     <Heading>{title}</Heading>
     <Panel>
       {googleReady && <Button secondary label={busy ? t("Please wait…", "कृपया रुकें…") : t("Continue with Google", "Google से जारी रखें")} disabled={busy} onPress={() => void googleSignIn()} />}
       {googleReady && <Body small>{t("Your Google account creates an ASAAN account. Verify your phone separately when a service requires it.", "आपके Google खाते से आसान खाता बनता है। ज़रूरत होने पर फ़ोन अलग से सत्यापित करें।")}</Body>}
-      <Heading size="small">{mode === "phone" ? (challenge ? t("Almost there. Your code?", "बस एक कदम और। आपका कोड?") : t("Let’s get you signed in", "चलिए, साइन इन करें"))
+      <Heading size="small">{invited ? (mode === "register" ? t("Create an account", "खाता बनाएँ") : t("Sign in with your username", "यूज़रनेम से साइन इन करें"))
+        : mode === "phone" ? (challenge ? t("Almost there. Your code?", "बस एक कदम और। आपका कोड?") : t("Let’s get you signed in", "चलिए, साइन इन करें"))
         : mode === "register" ? t("Create a preview account", "प्रीव्यू खाता बनाएँ") : t("Preview account sign-in", "प्रीव्यू खाते में साइन इन")}</Heading>
       {mode === "phone" && !challenge && <Field label={t("Indian mobile number", "भारतीय मोबाइल नंबर")}
         placeholder="+91 98765 43210" keyboardType="phone-pad" autoComplete="tel" value={phone}
@@ -106,6 +114,8 @@ export default function SignIn() {
           keyboardType="number-pad" autoComplete="one-time-code" maxLength={6} editable={!busy} onSubmitEditing={() => { if (ready) void submit(); }} />
       </>}
       {mode !== "phone" && <>
+        {invited && mode === "register" && <Field label={t("Invitation code", "आमंत्रण कोड")} value={invite} onChangeText={setInvite}
+          maxLength={128} autoCapitalize="none" autoCorrect={false} secureTextEntry editable={!busy} />}
         <Field label={t("Username", "यूज़रनेम")} testID="username" value={handle} onChangeText={setHandle}
           autoCapitalize="none" autoCorrect={false} autoComplete="username" editable={!busy} />
         <Field label={t("Password", "पासवर्ड")} testID="password" value={password} onChangeText={setPassword}
@@ -121,6 +131,8 @@ export default function SignIn() {
       {mode === "phone" && challenge && <Button secondary label={t("Change number or request a new code", "नंबर बदलें या नया कोड माँगें")}
         disabled={busy} onPress={() => { setChallenge(null); setCode(""); setError(null); }} />}
     </Panel>
+    {invited && <Button secondary label={mode === "register" ? t("Use an existing account", "मौजूदा खाता इस्तेमाल करें") : t("Create an account", "खाता बनाएँ")}
+      disabled={busy} onPress={() => switchMode(mode === "register" ? "login" : "register")} />}
     {phoneMode === "preview" && <Row>
       {mode !== "login" && <Button secondary compact label={t("Use a preview account", "प्रीव्यू खाता इस्तेमाल करें")} onPress={() => switchMode("login")} disabled={busy} />}
       {mode !== "register" && <Button secondary compact label={t("Create preview account", "प्रीव्यू खाता बनाएँ")} onPress={() => switchMode("register")} disabled={busy} />}

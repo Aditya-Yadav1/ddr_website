@@ -118,11 +118,12 @@ export type Catalog = {
   services: { id: string; name: string; note: string; tasks: string[] }[];
   defaultHours: Hours;
 };
-export type PhoneMode = "preview" | "twilio";
+export type PhoneMode = "preview" | "twilio" | "invite";
 export type PlaceSuggestion = { id: string; name: string; description: string; value: string; source: "coverage" | "photon" };
 export type PhoneChallenge = { challenge: string; expiresAt: number; previewCode?: string };
 export type Snapshot = {
   state: {
+    phoneMode?: PhoneMode;
     requireVerification?: boolean;
     deletionRequested?: boolean;
     isAdmin?: boolean;

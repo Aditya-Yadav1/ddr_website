@@ -5,7 +5,7 @@ const kinds = ["identity", "background", "skills"];
 const consentVersion = "worker-checks-v1";
 const fail = (status, message, code = "TRUST_REQUIRED") => Object.assign(new Error(message), { status, code });
 
-module.exports = function workerTrust(db, verifiedPhone = false) {
+module.exports = function workerTrust(db, verifiedPhone = false, invitedTest = false) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS verification_requests (
       worker TEXT PRIMARY KEY REFERENCES accounts(id), consent TEXT NOT NULL, requested INTEGER NOT NULL);
@@ -52,7 +52,7 @@ module.exports = function workerTrust(db, verifiedPhone = false) {
     return { checks, suspended, phoneVerified,
       requested: Boolean(db.prepare("SELECT 1 FROM verification_requests WHERE worker=?").get(profile.id)),
       verifiedName: checks.identity.status === "verified" ? profile.name : null,
-      eligible: !suspended && phoneVerified && kinds.every((kind) => checks[kind].status === "verified") };
+      eligible: !suspended && (phoneVerified || invitedTest) && kinds.every((kind) => checks[kind].status === "verified") };
   }
   function eligible(profile, required) {
     const trust = summary(profile);
