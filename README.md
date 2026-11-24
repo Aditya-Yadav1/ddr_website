@@ -61,6 +61,16 @@ npm test
 
 See [mobile/README.md](mobile/README.md) for Android builds and app testing. Browser edits to shared files already apply to the app source; an installed APK needs a new build to display them. Check native behavior on a phone before release, especially navigation, permissions, storage, keyboard layout, and accessibility.
 
+Image provenance for the existing photographs is listed in [ASSET_LICENSES.md](ASSET_LICENSES.md). Verify rights before a commercial launch.
+
+Review [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md) before deployment. The public service pages have descriptive metadata and a sitemap; account, booking, worker, and admin pages are marked out of search indexing.
+
+Operations access and the account deletion request queue are described in [ADMIN_SETUP.md](ADMIN_SETUP.md).
+
+## Google sign-in
+
+The connected website supports Google sign-in through an ASAAN-specific Firebase project when its public web config is configured. A server Admin credential enables additional token revocation checks. See [FIREBASE_SETUP.md](FIREBASE_SETUP.md). Phone sign-in remains available; the GitHub Pages build remains an offline demo. Google identity is linked to an existing phone account only through an explicit action while signed in to that account.
+
 ## Payments and provider safety
 
 - Open a completed booking with an outstanding final bill to try checkout. The local preview simulates the payment and labels the receipt as a test. For Razorpay staging, set `HANDYHIVE_PUBLIC_ORIGIN` to the staging HTTPS URL and configure `RAZORPAY_KEY_ID` (test key), `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` on the API server. Subscribe to `payment_link.paid`, `payment_link.expired`, and `payment_link.cancelled` at `/api/payments/razorpay-webhook`. Live collection requires merchant approval, worker settlements, and refund handling. Direct cash and UPI receipts remain available.

@@ -6,7 +6,7 @@ export type WorkerTrust = {
   phoneVerified: boolean; suspended: boolean; requested: boolean; eligible: boolean; verifiedName: string | null;
 };
 
-export type Account = { id: string; handle: string };
+export type Account = { id: string; handle: string; name?: string; email?: string; photo?: string; googleLinked?: boolean; phone?: string };
 export type Hours = { days: number[]; start: string; end: string; buffer: number };
 export type Unit = "visit" | "hourly" | "fixed";
 export type Tier = "everyday" | "plus";
@@ -35,7 +35,7 @@ export type Profile = {
   specializations?: string[];
 };
 export type Role = "customer" | "pro";
-export type BookingUpdate = { id?: string; job: string; role: Role; label: string; created: number };
+export type BookingUpdate = { id?: string; job: string; role: Role; label: string; created: number; read?: boolean };
 export type Materials = "customer" | "worker" | "none" | "inspect";
 export type Brief = { problem: string; materials: Materials; readiness: "ready" | "not_ready" | "unknown" };
 export type QuoteItem = { label: string; amountPaise: number };
@@ -114,6 +114,8 @@ export type PhoneChallenge = { challenge: string; expiresAt: number; previewCode
 export type Snapshot = {
   state: {
     requireVerification?: boolean;
+    deletionRequested?: boolean;
+    isAdmin?: boolean;
     demoPinCode?: string;
     onlinePaymentMode?: "demo" | "razorpay-test" | null;
     safetyReports?: { id: string; job: string; worker?: string; message: string; created: number; status: string; resolution: string }[];
@@ -138,7 +140,7 @@ export type BookingCommand = "request" | "transition" | "message" | "estimate" |
   | "payment-report" | "payment-confirm" | "payment-reverse" | "reschedule-propose" | "reschedule-respond"
   | "report-delay" | "help-create" | "help-respond" | "arrival-confirm" | "safety-report" | "demo-worker-step";
 export type ProfileCommand = "profile" | "hours" | "published" | "immediate" | "block" | "remove-block" | "save-address" | "remove-address" | "review" | "save-worker" | "remove-worker" | "verification-request"
-  | "block-worker" | "unblock-worker" | "report-worker"
+  | "block-worker" | "unblock-worker" | "report-worker" | "notification-read" | "account-profile" | "account-deletion-request"
   | "checkout-start" | "checkout-check" | "checkout-demo" | "checkout-cancel" | "support-create";
 
 const pilotMode = process.env.EXPO_PUBLIC_HANDYHIVE_PILOT;

@@ -2,7 +2,9 @@
   "name": "handyhive",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "node scripts/start-web.js --watch",
     "start": "node scripts/start-web.js",
@@ -11,5 +13,8 @@
     "build:pages": "node scripts/start-web.js --pages",
     "typecheck": "npm --prefix mobile run typecheck",
     "test": "node --test"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.1"
   }
 }

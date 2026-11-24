@@ -60,7 +60,7 @@ export default function WorkerDetails() {
   const tier = plus ? "plus" : "everyday";
   const workPhone = data?.details?.workPhone;
   return <Page footer={<Button label={t("Book this worker", "इस काम करने वाले को बुक करें")} onPress={() =>
-    router.push({ pathname: "/request/[id]", params: { ...params, id: worker.id, pinCode, tier } })} />}>
+    router.push(token ? { pathname: "/request/[id]", params: { ...params, id: worker.id, pinCode, tier } } : { pathname: "/sign-in", params: { role: "customer", next: JSON.stringify({ ...params, id: worker.id, pinCode, tier }) } })} />}>
     <VisitPin pinCode={pinCode} change />
     <Panel>
       <Heading>{worker.name}</Heading>

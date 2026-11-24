@@ -5,7 +5,7 @@ import { useCopy } from "../../src/language";
 import { LocationField, PinGate, useLocation } from "../../src/location";
 import { isPinCode } from "../../shared/pin-codes";
 import { useDiscovery } from "../../src/discovery";
-import { tasks } from "../../src/catalog";
+import { tasks, matchingTasks } from "../../src/catalog";
 import { api } from "../../src/api";
 import { appointmentDays } from "../../src/appointments";
 import { useSession } from "../../src/session";
@@ -46,7 +46,7 @@ export default function ServiceOptions() {
   }, [availabilityKey, resultKey, token, snapshot?.revision]);
   if (!snapshot) return <Page><Feedback error={error} /></Page>;
   const { catalog, profiles, demoPinCode, ratings = [] } = snapshot.state;
-  if (!checked || !ids.length) return <Page footer={<MainNav selected="discover" />}><PinGate demoPin={demoPinCode} /></Page>;
+  if (params.workers === "1" && (!checked || !ids.length)) return <Page footer={<MainNav selected="discover" />}><PinGate demoPin={demoPinCode} /></Page>;
   const category = catalog.services.find((item) => item.id === params.id);
   const validService = Boolean(category) || params.id === "all";
   const needle = query.trim().toLowerCase();
@@ -58,7 +58,7 @@ export default function ServiceOptions() {
   const priceOf = (person: typeof profiles[number]) => (plus ? person.plus!.price : person.price) * (person.unit === "hourly" ? 2 : 1);
   const found = profiles.filter((person) => {
     if (!validService || (category && person.service !== category.id) || (plus && !person.plus)) return false;
-    if (taskId && person.specializations?.length && !person.specializations.includes(taskId)) return false;
+    if (taskId && (person.specializations?.length ? !person.specializations.includes(taskId) : Number(taskId.split("-").at(-1)) >= 4)) return false;
     if (checkedSlots && !chooseSlot(checkedSlots[person.id])) return false;
     if (!checked || !ids.includes(person.id)) return false;
     const price = plus ? person.plus!.price : person.price;
@@ -72,8 +72,7 @@ export default function ServiceOptions() {
     || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 
   if (params.workers !== "1") {
-    const entries = tasks.filter((task) => (params.id === "all" || task.service === params.id)
-      && (!group || task.name === group) && (!needle || [task.task, task.name, task.hi, copy.task(task.service, task.task), ...task.aliases].some((word) => word.toLowerCase().includes(needle))));
+    const entries = matchingTasks(query, params.id).filter((task) => !group || task.name === group);
     const groups = tasks.filter((task) => params.id === "all" || task.service === params.id);
     const eligible = checked ? profiles.filter((person) => ids.includes(person.id)) : [];
     return <Page footer={<MainNav selected="discover" />}>

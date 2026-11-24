@@ -53,7 +53,7 @@ module.exports = function bookingUpdates(db, sms, readJobs) {
     forAccount(account) {
       if (!account) return { bookingUpdates: [], bookingSms: null };
       return {
-        bookingUpdates: list.all(account.id).map(({ job, status, created }) => ({ job, created, ...updates[status] })),
+        bookingUpdates: list.all(account.id).map(({ job, status, created }) => ({ id: job + ":" + status, job, created, ...updates[status] })),
         bookingSms: sms && canOptIn.get(account.id) ? Boolean(optedIn.get(account.id)) : null,
       };
     },

@@ -57,8 +57,10 @@ export default function RequestAppointment() {
   const areaValid = Boolean(selectionReady && checked && profile && ids.includes(profile.id));
   const dateValid = days.includes(day);
   const proId = profile?.id;
-  const allowedTasks = service?.tasks.filter((task) => !profile?.specializations?.length
-    || profile.specializations.includes(tasks.find((entry) => entry.task === task && entry.service === service.id)?.id ?? "")) ?? [];
+  const allowedTasks = service?.tasks.filter((task) => {
+    const entry = tasks.find((item) => item.task === task && item.service === service.id);
+    return profile?.specializations?.length ? profile.specializations.includes(entry?.id ?? "") : entry?.legacy;
+  }) ?? [];
   const slotKey = proId && areaValid && dateValid
     ? JSON.stringify([pinCode, times.map((slot) => day + "T" + slot), proId, scope, agreedHours, slotRefresh]) : "";
 

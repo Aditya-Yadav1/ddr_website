@@ -4,7 +4,7 @@ import { api, ApiError, offlineDemo, type BookingCommand, type Payload, type Pho
 import { readStored, removeStored, writeStored } from "./storage";
 
 const key = offlineDemo ? "handyhive-offline-session" : "handyhive-session";
-type AuthCommand = "login" | "register" | "phone-verify" | "demo-sign-in";
+type AuthCommand = "login" | "register" | "phone-verify" | "demo-sign-in" | "google-sign-in";
 type Session = {
   role: "customer" | "worker";
   chooseRole: (role: "customer" | "worker") => Promise<void>;
@@ -75,17 +75,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const credential = await readStored(key);
+      let credential = await readStored(key);
       setRole(await readStored(key + "-role") === "worker" ? "worker" : "customer");
       active.current = credential;
       setToken(credential);
       if (credential) await refresh(credential);
+      if (Platform.OS === "web" && !offlineDemo) {
+        try {
+          const settings = await api<{ firebase?: { apiKey: string; authDomain: string; projectId: string; appId: string } | null }>("config");
+          if (settings.firebase) {
+            const { configureGoogle, resumeGoogle } = await import("./google-auth");
+            configureGoogle(settings.firebase);
+            const idToken = !active.current ? await resumeGoogle() : null;
+            if (idToken) {
+              const next = await api<Snapshot & { session: { token: string } }>("google-sign-in", undefined, { idToken });
+              credential = next.session.token;
+              await writeStored(key, credential);
+              active.current = credential;
+              apply(credential, next);
+              setToken(credential);
+            }
+          }
+        } catch { /* Phone sign-in remains available when Google restoration is unavailable. */ }
+      }
     } catch (failure) {
       setError(failure);
     } finally {
       setLoading(false);
     }
-  }, [refresh]);
+  }, [refresh, apply]);
 
   useEffect(() => { void restore(); }, [restore]);
 
@@ -93,7 +111,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!token || loading) return;
     const isActive = () => Platform.OS === "web" ? !document.hidden : AppState.currentState === "active";
     const refreshIfActive = () => { if (isActive()) void refresh(token); };
-    const timer = setInterval(refreshIfActive, 4000);
+    const timer = setInterval(refreshIfActive, 20000);
     const listener = AppState.addEventListener("change", (state) => {
       if (state === "active") refreshIfActive();
     });
@@ -123,8 +141,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   async function logout() {
     const credential = active.current;
     if (!credential) return;
-    await api("logout", credential, {});
+    try { await api("logout", credential, {}); }
+    catch { /* Clear local credentials even when offline; server sessions expire. */ }
     await clear(credential);
+    if (Platform.OS === "web") {
+      const { signOutGoogle } = await import("./google-auth");
+      await signOutGoogle().catch(() => {});
+    }
   }
 
   async function mutate(action: BookingCommand | ProfileCommand, body: Payload) {

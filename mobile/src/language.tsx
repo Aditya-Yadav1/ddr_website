@@ -1,4 +1,5 @@
 import { upperEstimate } from "../shared/price-range";
+import { services, tasks } from "./catalog";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Platform } from "react-native";
 import { ApiError, errorMessage, type Booking, type Tier, type Unit } from "./api";
@@ -30,18 +31,6 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   return <LanguageContext.Provider value={{ language, toggle }}>{children}</LanguageContext.Provider>;
 }
 
-const serviceCopy: Record<string, [string, string, string[]]> = {
-  plumbing: ["प्लंबिंग", "लीकेज, नल और फिटिंग", ["टपकता नल ठीक करें", "बंद नाली खोलें", "फिटिंग लगाएँ", "प्लंबिंग का अन्य काम"]],
-  electrical: ["बिजली का काम", "पंखे, लाइट और वायरिंग", ["स्विच या सॉकेट ठीक करें", "लाइट या पंखा लगाएँ", "वायरिंग की जाँच", "बिजली का अन्य काम"]],
-  cleaning: ["घर की सफ़ाई", "कमरे, रसोई और बाथरूम", ["रसोई साफ़ करें", "बाथरूम साफ़ करें", "कमरा साफ़ करें", "सफ़ाई का अन्य काम"]],
-  painting: ["पेंटिंग", "दीवारें, टच-अप और फ़िनिश", ["दीवार पर टच-अप करें", "एक कमरे में पेंट करें", "सीलन वाले हिस्से की जाँच", "पेंटिंग का अन्य काम"]],
-};
-const taskKeys: Record<string, string[]> = {
-  plumbing: ["Fix a leaking tap", "Unblock a drain", "Install a fitting", "Other plumbing work"],
-  electrical: ["Repair a switch or socket", "Install a light or fan", "Check wiring", "Other electrical work"],
-  cleaning: ["Clean a kitchen", "Clean a bathroom", "Clean a room", "Other cleaning work"],
-  painting: ["Touch up a wall", "Paint one room", "Check a damp patch", "Other painting work"],
-};
 const areas: Record<string, string> = { "Lajpat Nagar": "लाजपत नगर", Dwarka: "द्वारका", Rohini: "रोहिणी", Saket: "साकेत" };
 const statuses: Record<Booking["status"], [string, string]> = {
   pending: ["Awaiting response", "जवाब का इंतज़ार"], accepted: ["Confirmed", "पुष्टि हो गई"],
@@ -142,9 +131,9 @@ export function useCopy() {
   return {
     t, language, toggle, intl, money, range, rate, dateTime, appointment, translateError,
     area: (place: string) => t(place, areas[place] || place),
-    service: (id: string, name: string) => t(name, serviceCopy[id]?.[0] || name),
-    serviceNote: (id: string, note: string) => t(note, serviceCopy[id]?.[1] || note),
-    task: (id: string, task: string) => t(task, serviceCopy[id]?.[2][taskKeys[id]?.indexOf(task)] || task),
+    service: (id: string, name: string) => t(name, services.find((item) => item.id === id)?.hi || name),
+    serviceNote: (id: string, note: string) => t(note, services.find((item) => item.id === id)?.noteHi || note),
+    task: (id: string, task: string) => t(task, tasks.find((item) => item.service === id && item.task === task)?.taskHi || task),
     tier: (tier: Tier) => tier === "plus" ? t("Plus", "प्लस") : t("Everyday", "एवरीडे"),
     updateLabel: (label: string) => t(label, updateLabels[label] || label),
     status: (status: Booking["status"]) => t(...statuses[status]),

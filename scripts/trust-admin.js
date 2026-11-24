@@ -14,7 +14,8 @@ try {
     console.log(JSON.stringify({ requests: db.prepare("SELECT * FROM verification_requests ORDER BY requested").all(),
       profiles: JSON.parse(db.prepare("SELECT body FROM marketplace WHERE id=1").get().body).profiles.map(({ id, name, service }) => ({ id, name, service })),
       reports: db.prepare("SELECT * FROM safety_reports WHERE status='open' ORDER BY created").all(),
-      support: db.prepare("SELECT id, owner, job, category, message, created FROM support_tickets WHERE status='open' ORDER BY created").all() }, null, 2));
+      support: db.prepare("SELECT id, owner, job, category, message, created FROM support_tickets WHERE status='open' ORDER BY created").all(),
+      accountDeletion: db.prepare("SELECT owner, requested FROM account_deletion_requests WHERE status='open' ORDER BY requested").all() }, null, 2));
   } else {
     if (!inputPath) throw new Error("Usage: node scripts/trust-admin.js queue | review|suspend|reinstate|resolve|withdraw|support-resolve input.json");
     const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));

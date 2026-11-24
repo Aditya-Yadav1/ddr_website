@@ -1,6 +1,6 @@
 import { Link, useRouter } from "expo-router";
-import { useState, type ReactNode } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
+import { isValidElement, useState, type ReactNode } from "react";
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type TextInputProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Booking, Profile, Tier, Unit } from "./api";
 import { useCopy } from "./language";
@@ -37,11 +37,13 @@ export const heroImage: number = require("../assets/local-home-help.png");
 export const activeStatuses: Booking["status"][] = ["pending", "accepted", "en_route", "arrived", "in_progress"];
 
 export function Page({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
+  const { width } = useWindowDimensions();
+  const showFooter = footer && !(width >= 850 && isValidElement(footer) && footer.type === MainNav);
   return <SafeAreaView style={styles.page} edges={["left", "right", "bottom"]}>
     <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
       <View style={styles.content}>{children}</View>
     </ScrollView>
-    {footer && <View style={styles.footer}><View style={styles.footerContent}>{footer}</View></View>}
+    {showFooter && <View style={styles.footer}><View style={styles.footerContent}>{footer}</View></View>}
   </SafeAreaView>;
 }
 
@@ -154,23 +156,44 @@ export function LanguageButton() {
 }
 
 export function MainNav({ selected }: { selected: "discover" | "bookings" | "worker" | "account" }) {
+  const { width } = useWindowDimensions();
   const router = useRouter();
   const { t } = useCopy();
-  const { role } = useSession();
+  const { role, token } = useSession();
   const links = [
     { id: "discover", path: "/customer", label: t("Explore", "खोजें"), icon: "⌂" },
     { id: "bookings", path: "/bookings", label: t("Bookings", "बुकिंग") , icon: "≡" },
     { id: "worker", path: "/worker", label: t("Work", "काम"), icon: "◇" },
     { id: "account", path: "/account", label: t("Account", "खाता"), icon: "◉" },
   ] as const;
+  if (width >= 850) return null;
   return <View style={styles.nav}>
     {links.filter(({ id }) => id === "account" || (role === "worker" ? id === "worker" : id !== "worker")).map(({ id, path, label, icon }) => <Pressable key={id} accessibilityRole="tab" accessibilityLabel={label}
       accessibilityState={{ selected: id === selected }} style={[styles.navItem, id === selected && styles.navSelected]}
-      onPress={() => router.navigate(path)}>
+      onPress={() => router.navigate(!token && (id === "bookings" || id === "account")
+        ? { pathname: "/sign-in", params: { role: "customer" } } : path)}>
       <Text style={styles.navIcon}>{icon}</Text>
       <Text style={styles.navText}>{label}</Text>
     </Pressable>)}
   </View>;
+}
+
+
+export function DesktopNav() {
+  const router = useRouter();
+  const { token, snapshot } = useSession();
+  const { t } = useCopy();
+  const links = [
+    [t("Services", "सेवाएँ"), "/services/all"],
+    [t("Bookings", "बुकिंग"), token ? "/bookings" : "/sign-in"],
+    [t("Help", "सहायता"), "/help"],
+    ...(snapshot?.state.isAdmin ? [[t("Operations", "संचालन"), "/admin"]] : []),
+    [t("Work", "काम"), token ? "/worker" : "/sign-in?role=worker"],
+    [token ? t("Account", "खाता") : t("Sign in", "साइन इन"), token ? "/account" : "/sign-in"],
+  ];
+  return <View style={styles.desktopNav}>{links.map(([label, path]) => <Pressable key={label} accessibilityRole="link" accessibilityLabel={label}
+    onPress={() => router.push(path as "/help")} style={({ pressed }) => [styles.desktopNavLink, pressed && styles.pressed]}>
+    <Text style={styles.desktopNavText}>{label}</Text></Pressable>)}<LanguageButton /></View>;
 }
 
 export function Brand({ compact = false }: { compact?: boolean }) {
@@ -186,9 +209,9 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   </Link>;
 }
 
-export function ServiceImage({ service }: { service: string }) {
+export function ServiceImage({ service, large = false }: { service: string; large?: boolean }) {
   return serviceImages[service]
-    ? <Image source={serviceImages[service]} style={styles.serviceImage} resizeMode="cover" accessible={false} /> : null;
+    ? <Image source={serviceImages[service]} style={[styles.serviceImage, large && { height: 260, borderRadius: 4 }]} resizeMode="cover" accessible={false} /> : null;
 }
 
 export function TierPrice({ price, maxPrice, legacy, unit, tier, minimumQuantity }: { price: number; maxPrice?: number; legacy?: boolean; unit: Unit; tier: Tier; minimumQuantity?: number }) {
@@ -224,9 +247,12 @@ export const fontFamily = Platform.OS === "web" ? "'DM Sans', sans-serif" : Plat
 export const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.paper },
   scroll: { flexGrow: 1, paddingHorizontal: 18, paddingVertical: 22 },
-  content: { width: "100%", maxWidth: 860, alignSelf: "center", gap: 22, paddingBottom: 12 },
+  content: { width: "100%", maxWidth: 1180, alignSelf: "center", gap: 22, paddingBottom: 12 },
+  desktopNav: { flexDirection: "row", alignItems: "center", gap: 6 },
+  desktopNavLink: { paddingHorizontal: 10, paddingVertical: 10, minHeight: 44, justifyContent: "center" },
+  desktopNavText: { fontFamily, color: colors.ink, fontWeight: "600", fontSize: 14 },
   footer: { backgroundColor: colors.white, borderTopWidth: 1, borderColor: colors.border, paddingHorizontal: 10 },
-  footerContent: { maxWidth: 860, width: "100%", alignSelf: "center" },
+  footerContent: { maxWidth: 1180, width: "100%", alignSelf: "center" },
   panel: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, borderRadius: 16, padding: 18, gap: 13 },
   section: { gap: 9 },
   row: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },

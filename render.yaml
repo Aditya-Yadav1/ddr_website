@@ -23,3 +23,15 @@ services:
         sync: false
       - key: TWILIO_VERIFY_SERVICE_SID
         sync: false
+      - key: HANDYHIVE_FIREBASE_API_KEY
+        value: "AIzaSyCTZ4BWm-MamXqmr96ka3HWTBPMy8peS84"
+      - key: HANDYHIVE_FIREBASE_AUTH_DOMAIN
+        value: asaan-a6c97.firebaseapp.com
+      - key: HANDYHIVE_FIREBASE_PROJECT_ID
+        value: asaan-a6c97
+      - key: HANDYHIVE_FIREBASE_APP_ID
+        value: "1:668369845966:web:d0a12e737bf95328771a9f"
+      - key: HANDYHIVE_FIREBASE_MESSAGING_SENDER_ID
+        value: "668369845966"
+      - key: HANDYHIVE_FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false

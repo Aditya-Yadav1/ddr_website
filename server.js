@@ -16,6 +16,10 @@ const demoWorkers = require("./mobile/shared/demo-workers.js");
 const { isPinCode, demoPinCode, demoPinCodes } = require("./mobile/shared/pin-codes.js");
 const { readReview } = require("./mobile/shared/worker-reviews.js");
 const migrate = require("./db-migrations.js");
+const firebaseAuth = require("./firebase-auth.js");
+const siteMetadata = require("./site-metadata.js");
+const firebaseConfig = firebaseAuth.publicConfig(process.env);
+const verifyFirebase = firebaseConfig ? firebaseAuth.verifier(process.env) : null;
 const config = require("./server-config.js")(process.env);
 const { createOnlinePayments, reserve: reserveCheckout, record: recordCheckout } = require("./online-payments");
 const onlinePayments = createOnlinePayments(process.env, config);
@@ -60,6 +64,18 @@ const cookieName = "handyhive_preview";
 const browserSessions = sessionStore("sessions");
 const nativeSessions = sessionStore("native_sessions");
 const authAttempts = new Map();
+function limitAuth(req) {
+  const now = Date.now();
+  const address = requestAddress(req);
+  const previous = authAttempts.get(address);
+  const record = previous && previous.until > now ? previous : { count: 0, until: now + 60_000 };
+  record.count++;
+  authAttempts.set(address, record);
+  if (authAttempts.size > 10000) {
+    for (const [key, value] of authAttempts) if (value.until <= now) authAttempts.delete(key);
+  }
+  if (record.count > 12) throw failure(429, "Too many sign-in attempts. Try again in a minute.");
+}
 db.exec("CREATE TABLE IF NOT EXISTS phone_challenges (id TEXT PRIMARY KEY, phone TEXT NOT NULL, hash TEXT NOT NULL, expires INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0); CREATE TABLE IF NOT EXISTS phone_accounts (phone TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES accounts(id)); CREATE TABLE IF NOT EXISTS phone_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, resets INTEGER NOT NULL);");
 db.exec("CREATE TABLE IF NOT EXISTS auth_mode (id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL);");
 // Claim the database before permitting any auth. Old databases with accounts were preview-only.
@@ -71,12 +87,21 @@ if (db.prepare("SELECT mode FROM auth_mode WHERE id=1").get().mode !== phoneMode
 }
 const updates = createBookingUpdates(db, twilio?.sendBooking, () => JSON.parse(getStore.get().body).requests);
 migrate(db);
+const firebaseIdentity = db.prepare("SELECT accounts.id, accounts.handle FROM firebase_identities JOIN accounts ON accounts.id=firebase_identities.owner WHERE uid=?");
+const linkFirebase = db.prepare("INSERT INTO firebase_identities(uid,owner,created) VALUES (?,?,?)");
+const upsertAccountProfile = db.prepare("INSERT INTO account_profiles(owner,full_name,email,photo,updated) VALUES (?,?,?,?,?) ON CONFLICT(owner) DO UPDATE SET full_name=CASE WHEN account_profiles.full_name='' THEN excluded.full_name ELSE account_profiles.full_name END,email=excluded.email,photo=excluded.photo,updated=excluded.updated");
 const trust = createTrust(db, phoneMode === "twilio");
 const listSupport = db.prepare("SELECT id, job, category, message, created, status, response FROM support_tickets WHERE owner=? ORDER BY created DESC, rowid DESC");
 const findSupport = db.prepare("SELECT job, category, message FROM support_tickets WHERE owner=? AND id=?");
 const insertSupport = db.prepare("INSERT INTO support_tickets (id, owner, job, category, message, created) VALUES (?, ?, ?, ?, ?, ?)");
 const listEvents = db.prepare("SELECT id,job,role,label,created FROM booking_events WHERE owner=? ORDER BY created DESC,rowid DESC LIMIT 12");
 const insertEvent = db.prepare("INSERT INTO booking_events VALUES(?,?,?,?,?,?)");
+const hasAdminAccess = db.prepare("SELECT 1 FROM admin_accounts WHERE owner=?");
+const recordAdmin = db.prepare("INSERT INTO admin_audit VALUES (?,?,?,?,?,?)");
+function requireAdmin(account) {
+  if (!account || !hasAdminAccess.get(account.id)) throw failure(403, "Admin access required.");
+  return account;
+}
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 const hashPassword = (password, salt) => crypto.scryptSync(password, salt, 64);
 const owns = (account, job, role) => Boolean(account && job && (role === "pro" ? job.proId === account.id : role === "customer" && job.customerId === account.id));
@@ -201,7 +226,8 @@ function snapshot(market, state, query, native) {
   } : null;
   const { bookingUpdates, bookingSms } = updates.forAccount(account);
   const recentUpdates = native && account
-    ? [...bookingUpdates, ...listEvents.all(account.id)].sort((a, b) => b.created - a.created).slice(0, 12) : bookingUpdates;
+    ? [...bookingUpdates, ...listEvents.all(account.id)].sort((a, b) => b.created - a.created).slice(0, 30) : bookingUpdates;
+  const readNotifications = new Set(native && account ? db.prepare("SELECT id FROM notification_reads WHERE owner=?").all(account.id).map((row) => row.id) : []);
   const counts = new Map();
   const demos = new Set(db.prepare("SELECT id FROM accounts WHERE handle LIKE '%-demo'").all().map((item) => item.id));
   const seen = new Set();
@@ -217,9 +243,11 @@ function snapshot(market, state, query, native) {
     const [service, scope, pinCode] = JSON.parse(key); return { service, scope, pinCode, count };
   }).sort((a, b) => b.count - a.count).slice(0, 40);
   return {
-    account, profile: state.profile ? { ...state.profile, trust: trust.summary(state.profile) } : null, profiles: directory, matches, ...(native && { popular,
+    account: account ? { ...account, ...db.prepare("SELECT full_name AS name, email, photo FROM account_profiles WHERE owner=?").get(account.id), googleLinked: Boolean(db.prepare("SELECT 1 FROM firebase_identities WHERE owner=?").get(account.id)), phone: db.prepare("SELECT phone FROM phone_accounts WHERE owner=?").get(account.id)?.phone || "" } : null, profile: state.profile ? { ...state.profile, trust: trust.summary(state.profile) } : null, profiles: directory, matches, ...(native && { popular,
       safetyReports: account ? trust.reports(account.id) : [],
       supportTickets: account ? listSupport.all(account.id) : [],
+      deletionRequested: account ? Boolean(db.prepare("SELECT 1 FROM account_deletion_requests WHERE owner=? AND status='open'").get(account.id)) : false,
+      isAdmin: account ? Boolean(hasAdminAccess.get(account.id)) : false,
       blockedWorkers: account ? trust.blocks(account.id).map(({ worker }) => ({
         id: worker, name: state.profiles.find((person) => person.id === worker)?.name || "Worker",
       })) : [],
@@ -228,7 +256,8 @@ function snapshot(market, state, query, native) {
       ratings: db.prepare("SELECT pro, ROUND(AVG(rating),1) AS rating, COUNT(*) AS count FROM service_reviews GROUP BY pro").all(),
       savedWorkers: account ? db.prepare("SELECT worker FROM saved_workers WHERE owner=?").all(account.id).map((row) => row.worker) : [],
     }),
-    bookingUpdates: recentUpdates, ...(!native && { bookingSms }),
+    bookingUpdates: native ? recentUpdates.map((item) => ({ ...item, read: readNotifications.has(item.id) })) : recentUpdates,
+    ...(!native && { bookingSms }),
     ...(native && { phoneMode, requireVerification: config.requireVerification, onlinePaymentMode: onlinePayments.mode,
       ...(directory.some((person) => person.sample && market.coversPin(person, demoPinCode)) && { demoPinCode }), catalog: {
       areas: [...new Set([...market.areas, ...directory.flatMap((profile) => profile.areas)])],
@@ -289,7 +318,7 @@ async function startPhone(input, req) {
   return { challenge: id, expiresAt: expires, ...(code ? { previewCode: code } : {}) };
 }
 
-async function verifyPhone(input) {
+async function verifyPhone(input, linkingAccount = null) {
   if (typeof input.challenge !== "string" || typeof input.code !== "string" || !/^\d{6}$/.test(input.code)) {
     throw failure(400, "Enter the six-digit code.");
   }
@@ -312,6 +341,14 @@ async function verifyPhone(input) {
       throw unavailable();
     }
     const existing = db.prepare("SELECT accounts.id, accounts.handle FROM phone_accounts JOIN accounts ON accounts.id=phone_accounts.owner WHERE phone=?").get(challenge.phone);
+    if (linkingAccount) {
+      if (existing && existing.id !== linkingAccount.id) throw failure(409, "This phone number belongs to another account.");
+      if (db.prepare("SELECT 1 FROM phone_accounts WHERE owner=? AND phone<>?").get(linkingAccount.id, challenge.phone)) {
+        throw failure(409, "This account already has a verified phone number.");
+      }
+      if (!existing) db.prepare("INSERT INTO phone_accounts VALUES (?,?)").run(challenge.phone, linkingAccount.id);
+      return linkingAccount;
+    }
     if (existing) return existing;
     const account = { id: crypto.randomUUID(), handle: "phone_" + crypto.randomBytes(10).toString("hex") };
     const salt = crypto.randomBytes(16).toString("hex");
@@ -327,12 +364,7 @@ function signIn(action, input, req) {
   if (!/^[a-z0-9_-]{3,32}$/.test(handle) || typeof password !== "string" || password.length < 12 || password.length > 128) {
     throw failure(400, "Use a username of 3 to 32 letters, numbers, underscores or hyphens and a password of 12 to 128 characters.");
   }
-  const address = requestAddress(req);
-  const now = Date.now();
-  const attempt = authAttempts.get(address);
-  const recent = attempt && attempt.until > now ? attempt : { count: 0, until: now + 60_000 };
-  if (++recent.count > 12) throw failure(429, "Too many attempts. Try again in a minute.");
-  authAttempts.set(address, recent);
+  limitAuth(req);
   let account = accountByHandle.get(handle);
   if (action === "register") {
     if (account) throw failure(409, "This username is taken.");
@@ -389,6 +421,26 @@ function mutate(action, market, state, input, native = false, requestFingerprint
     const count = db.prepare("SELECT COUNT(*) AS count FROM saved_workers WHERE owner=?").get(account.id).count;
     if (count >= 100) throw failure(400, "Remove a saved worker before adding another.");
     const result = db.prepare("INSERT OR IGNORE INTO saved_workers VALUES (?,?)").run(account.id, input.worker);
+    return { sideTableChanged: Boolean(result.changes) };
+  }
+  if (native && action === "account-deletion-request") {
+    const result = db.prepare("INSERT OR IGNORE INTO account_deletion_requests(owner,requested) VALUES (?,?)").run(account.id, Date.now());
+    return { sideTableChanged: Boolean(result.changes) };
+  }
+  if (native && action === "account-profile") {
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (name.length < 2 || name.length > 100 || /[<>\x00-\x1f]/.test(name)) throw failure(400, "Enter a name of 2 to 100 characters.");
+    db.prepare("INSERT INTO account_profiles(owner,full_name,updated) VALUES (?,?,?) ON CONFLICT(owner) DO UPDATE SET full_name=excluded.full_name,updated=excluded.updated")
+      .run(account.id, name, Date.now());
+    return { sideTableChanged: true };
+  }
+  if (native && action === "notification-read") {
+    if (typeof input.id !== "string" || input.id.length > 150) throw failure(400, "Choose a notification.");
+    const event = db.prepare("SELECT 1 FROM booking_events WHERE owner=? AND id=?").get(account.id, input.id);
+    const status = input.id.match(/^([a-f0-9-]{8,80}):(pending|accepted|declined|expired|cancelled|completed)$/);
+    const booking = status && db.prepare("SELECT 1 FROM booking_updates WHERE owner=? AND job=? AND status=?").get(account.id, status[1], status[2]);
+    if (!event && !booking) throw failure(404, "Notification unavailable.");
+    const result = db.prepare("INSERT OR IGNORE INTO notification_reads(owner,id,read_at) VALUES (?,?,?)").run(account.id, input.id, Date.now());
     return { sideTableChanged: Boolean(result.changes) };
   }
   if (native && action === "save-address") {
@@ -661,8 +713,8 @@ const staticFiles = new Set(["index.html", "appearance.js", "marketplace.js", "m
   "tracking.js", "contact.js", "live-preview.js", "script.js", "styles.css"]);
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".jpg": "image/jpeg" };
 const appMime = { ...mime, ".tsv": "text/tab-separated-values; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
-const nativeActions = new Set(["discover", "state", "slots", "coverage", "locations", "worker-details", "register", "login", "logout", "phone-start", "phone-verify", "config",
-  "save-address", "remove-address", "review", "profile", "hours", "published", "immediate", "block", "remove-block", "request", "transition", "message", "estimate",
+const nativeActions = new Set(["admin-overview", "admin-support-resolve", "admin-worker-review", "admin-worker-suspend", "admin-report-resolve", "discover", "state", "slots", "coverage", "locations", "worker-details", "register", "login", "google-sign-in", "google-link", "phone-link", "logout", "phone-start", "phone-verify", "config",
+  "save-address", "remove-address", "account-profile", "account-deletion-request", "notification-read", "review", "profile", "hours", "published", "immediate", "block", "remove-block", "request", "transition", "message", "estimate",
   "availability", "save-worker", "remove-worker", "block-worker", "unblock-worker", "report-worker", "health", "verification-request", "arrival-confirm", "safety-report",
   "checkout-start", "checkout-check", "checkout-demo", "checkout-cancel", "support-create", "demo-worker-step", "visit-location", ...agreements.commands.keys()]);
 const operationFields = new Map([
@@ -768,7 +820,27 @@ async function handleApi(req, res, url, native) {
     db.prepare("SELECT 1").get();
     return send(res, 200, { service: "handyhive", apiVersion: 1, status: "ok" });
   }
-  if (native && action === "config" && req.method === "GET") return send(res, 200, { phoneMode, requireVerification: config.requireVerification });
+  if (native && action === "config" && req.method === "GET") return send(res, 200, { phoneMode, requireVerification: config.requireVerification, firebase: firebaseConfig });
+  if (native && action === "admin-overview" && req.method === "GET") {
+    const admin = requireAdmin(readAccount());
+    const store = JSON.parse(getStore.get().body);
+    const profiles = store.profiles.map((profile) => ({ id: profile.id, name: profile.name, service: profile.service,
+      published: profile.published, trust: trust.summary(profile) }));
+    const statuses = Object.groupBy(store.requests, (job) => job.status);
+    return send(res, 200, {
+      metrics: { accounts: db.prepare("SELECT COUNT(*) AS n FROM accounts").get().n,
+        professionals: profiles.length, openSupport: db.prepare("SELECT COUNT(*) AS n FROM support_tickets WHERE status='open'").get().n,
+        activeBookings: store.requests.filter((job) => ["pending", "accepted", "en_route", "arrived", "in_progress"].includes(job.status)).length,
+        completedBookings: (statuses.completed || []).length },
+      professionals: profiles,
+      verification: db.prepare("SELECT worker,requested FROM verification_requests ORDER BY requested DESC LIMIT 100").all(),
+      support: db.prepare("SELECT id,owner,job,category,message,created FROM support_tickets WHERE status='open' ORDER BY created DESC LIMIT 100").all(),
+      reports: db.prepare("SELECT id,worker,job,message,created FROM safety_reports WHERE status='open' ORDER BY created DESC LIMIT 100").all(),
+      deletionRequests: db.prepare("SELECT owner,requested FROM account_deletion_requests WHERE status='open' ORDER BY requested DESC LIMIT 100").all(),
+      audit: db.prepare("SELECT actor,action,subject,reason,created FROM admin_audit ORDER BY created DESC LIMIT 30").all(),
+      operator: admin.id,
+    });
+  }
   if (native && action === "worker-details" && req.method === "GET") {
     const account = readAccount();
     const id = url.searchParams.get("id");
@@ -875,6 +947,40 @@ async function handleApi(req, res, url, native) {
     }
     return send(res, 200, await searchPlaces.reverse(latitude, longitude));
   }
+  if (native && action.startsWith("admin-")) {
+    const admin = requireAdmin(readAccount());
+    const result = writeTransaction(() => {
+      const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+      if (action === "admin-support-resolve") {
+        const reply = typeof input.response === "string" ? input.response.trim() : "";
+        if (!input.id || !input.owner || reply.length < 3 || reply.length > 1000) throw failure(400, "Provide a support reply of 3 to 1000 characters.");
+        const changed = db.prepare("UPDATE support_tickets SET status='resolved',response=?,responder=? WHERE id=? AND owner=? AND status='open'")
+          .run(reply, admin.id, input.id, input.owner).changes;
+        if (!changed) throw failure(404, "Open support request unavailable.");
+        recordAdmin.run(crypto.randomUUID(), admin.id, "support-resolve", input.id, reply, Date.now());
+      } else if (action === "admin-worker-review") {
+        const profile = JSON.parse(getStore.get().body).profiles.find((item) => item.id === input.worker);
+        if (!profile) throw failure(404, "Worker unavailable.");
+        trust.review(profile, { kind: input.kind, status: input.status, reference: input.reference,
+          expiresAt: Number(input.expiresAt), reviewer: admin.id });
+        recordAdmin.run(crypto.randomUUID(), admin.id, "worker-review", profile.id, String(input.kind) + ":" + String(input.status), Date.now());
+      } else if (action === "admin-worker-suspend") {
+        const profile = JSON.parse(getStore.get().body).profiles.find((item) => item.id === input.worker);
+        if (!profile || reason.length < 10 || reason.length > 300 || typeof input.suspended !== "boolean") throw failure(400, "Choose a worker and provide a reason of 10 to 300 characters.");
+        trust.suspend(profile.id, input.suspended, admin.id, reason);
+        recordAdmin.run(crypto.randomUUID(), admin.id, input.suspended ? "worker-suspend" : "worker-reinstate", profile.id, reason, Date.now());
+      } else if (action === "admin-report-resolve") {
+        if (reason.length < 10 || reason.length > 1000) throw failure(400, "Provide a reporter-safe resolution of 10 to 1000 characters.");
+        const report = db.prepare("UPDATE safety_reports SET status='resolved',resolution=? WHERE id=? AND status='open' RETURNING worker").get(reason, input.id);
+        if (!report) throw failure(404, "Open report unavailable.");
+        trust.audit(report.worker, "report-resolved", admin.id, input.id);
+        recordAdmin.run(crypto.randomUUID(), admin.id, "report-resolve", input.id, reason, Date.now());
+      } else throw failure(404, "Admin action unavailable.");
+      advanceRevision.run();
+      return { saved: true };
+    });
+    return send(res, 200, result);
+  }
   if (native && action.startsWith("checkout-")) return send(res, 200, await checkoutAction(readAccount(), action, input, url.searchParams));
   if (action === "phone-start") return send(res, 200, await startPhone(input, req));
   if (action === "logout") {
@@ -886,6 +992,44 @@ async function handleApi(req, res, url, native) {
     if (native) return send(res, 200, { signedOut: true });
     res.setHeader("Set-Cookie", cookieName + "=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     return send(res, 200, snapshotFor(null));
+  }
+  if (native && ["google-sign-in", "google-link"].includes(action)) {
+    limitAuth(req);
+    if (!verifyFirebase) throw failure(503, "Google sign-in is not configured on this server.", "FIREBASE_NOT_CONFIGURED");
+    let identity;
+    try { identity = await verifyFirebase(input.idToken); }
+    catch { throw failure(401, "Google sign-in could not be verified. Please try again.", "INVALID_FIREBASE_TOKEN"); }
+    const current = action === "google-link" ? readAccount() : null;
+    if (action === "google-link" && !current) throw failure(401, "Sign in to link your account.");
+    const account = writeTransaction(() => {
+      const existing = firebaseIdentity.get(identity.uid);
+      if (existing) {
+        if (current && existing.id !== current.id) throw failure(409, "This Google account is already linked to another account.");
+        upsertAccountProfile.run(existing.id, identity.name, identity.email, identity.photo, Date.now());
+        return existing;
+      }
+      if (current) {
+        if (db.prepare("SELECT 1 FROM firebase_identities WHERE owner=?").get(current.id)) throw failure(409, "This account already has a linked Google account.");
+        linkFirebase.run(identity.uid, current.id, Date.now());
+        upsertAccountProfile.run(current.id, identity.name, identity.email, identity.photo, Date.now());
+        return current;
+      }
+      const created = { id: crypto.randomUUID(), handle: "google_" + crypto.randomBytes(12).toString("hex") };
+      const salt = crypto.randomBytes(16).toString("hex");
+      db.prepare("INSERT INTO accounts VALUES (?,?,?,?)").run(created.id, created.handle, salt, hashPassword(crypto.randomBytes(32), salt).toString("hex"));
+      linkFirebase.run(identity.uid, created.id, Date.now());
+      upsertAccountProfile.run(created.id, identity.name, identity.email, identity.photo, Date.now());
+      return created;
+    });
+    const session = action === "google-link" ? null : createSession(account, sessions);
+    const response = snapshotFor(account);
+    return send(res, 200, session ? { ...response, session } : response);
+  }
+  if (native && action === "phone-link") {
+    const account = readAccount();
+    if (!account) throw failure(401, "Sign in to verify your phone number.");
+    await verifyPhone(input, account);
+    return send(res, 200, snapshotFor(account));
   }
   if (["register", "login", "phone-verify"].includes(action)) {
     if (twilio && action !== "phone-verify") throw failure(404, "Use phone sign-in.");
@@ -922,9 +1066,14 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith("/api/")) {
       return await handleApi(req, res, url, native);
     }
+    if (req.method === "GET" && (url.pathname === "/robots.txt" || url.pathname === "/sitemap.xml")) {
+      const xml = url.pathname === "/sitemap.xml";
+      res.writeHead(200, { "Content-Type": xml ? "application/xml; charset=utf-8" : "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+      return res.end(xml ? siteMetadata.sitemap(origin) : siteMetadata.robots(origin));
+    }
     if (appPreview && req.method === "GET") {
       const pathname = decodeURIComponent(url.pathname);
-      const entry = pathname === "/" || /^\/(?:customer|sign-in|worker(?:-profile)?|account|support|(?:services|tasks|providers)\/[a-z0-9-]+|bookings(?:\/[a-z0-9-]+(?:\/(?:payment|review))?)?|request\/[a-z0-9-]+)\/?$/.test(pathname);
+      const entry = pathname === "/" || /^\/(?:customer|help|admin|sign-in|worker(?:-profile)?|account|support|(?:services|tasks|providers|information)\/[a-z0-9-]+|bookings(?:\/[a-z0-9-]+(?:\/(?:payment|review))?)?|request\/[a-z0-9-]+)\/?$/.test(pathname);
       const asset = path.resolve(appPreview, "." + pathname);
       const type = entry ? mime[".html"] : appMime[path.extname(asset)];
       if (!type || (!entry && !asset.startsWith(appPreview + path.sep))) throw failure(404, "Page unavailable.");
@@ -934,6 +1083,7 @@ const server = http.createServer(async (req, res) => {
         if (error.code !== "ENOENT") throw error;
         throw failure(entry ? 503 : 404, "Website build unavailable. Run npm run build:web from the project folder.");
       }
+      if (entry) body = body.toString().replace(/<title>[^<]*<\/title>/, siteMetadata.metadata(pathname.replace(/\/$/, "") || "/", origin));
       res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });
       return res.end(body);
     }

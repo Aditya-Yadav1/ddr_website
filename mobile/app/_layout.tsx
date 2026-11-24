@@ -6,7 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LanguageProvider, useCopy } from "../src/language";
 import { LocationProvider } from "../src/location";
 import { SessionProvider, useSession } from "../src/session";
-import { Body, Brand, Button, colors, Feedback, LanguageButton, Loading, Page } from "../src/ui";
+import { Body, Brand, Button, DesktopNav, colors, Feedback, LanguageButton, Loading, Page } from "../src/ui";
 
 function Navigation() {
   const { token, snapshot, loading, error, restore } = useSession();
@@ -27,16 +27,20 @@ function Navigation() {
     headerStyle: { backgroundColor: colors.paper }, headerTintColor: colors.ink, headerShadowVisible: false,
     headerTitleStyle: { fontWeight: "700" }, headerBackButtonDisplayMode: "minimal",
     contentStyle: { backgroundColor: colors.paper },
-    headerRight: () => <Brand compact={width < 600} />,
+    headerTitle: width >= 850 ? () => <Brand /> : undefined,
+    headerRight: () => width >= 850 ? <DesktopNav /> : <Brand compact={width < 600} />,
   }}>
     <Stack.Screen name="index" options={{ title: "ASAAN", headerBackVisible: false,
-      headerTitle: () => <Brand />, headerRight: () => <LanguageButton /> }} />
-    <Stack.Protected guard={Boolean(token)}>
-      <Stack.Screen name="customer" options={{ title: t("Customer", "ग्राहक") }} />
+      headerTitle: () => <Brand />, headerRight: () => width >= 850 ? <DesktopNav /> : <LanguageButton /> }} />
+    <Stack.Screen name="information/[topic]" options={{ title: t("Information", "जानकारी") }} />
+    <Stack.Screen name="help" options={{ title: t("Help", "सहायता") }} />
+    <Stack.Screen name="customer" options={{ title: t("Customer", "ग्राहक") }} />
       <Stack.Screen name="services/[id]" options={{ title: t("Service options", "सेवा के विकल्प") }} />
       <Stack.Screen name="tasks/[id]" options={{ title: t("Service details", "सेवा की जानकारी") }} />
       <Stack.Screen name="providers/[id]" options={{ title: t("Worker details", "काम करने वाले की जानकारी") }} />
-      <Stack.Screen name="request/[id]" options={{ title: t("Request a service", "सेवा का अनुरोध") }} />
+    <Stack.Protected guard={Boolean(token)}>
+    <Stack.Screen name="admin" options={{ title: t("Operations", "संचालन") }} />
+    <Stack.Screen name="request/[id]" options={{ title: t("Request a service", "सेवा का अनुरोध") }} />
       <Stack.Screen name="support" options={{ title: t("Help", "सहायता") }} />
       <Stack.Screen name="worker" options={{ title: t("Worker workspace", "काम की जगह") }} />
       <Stack.Screen name="worker-profile" options={{ title: t("Worker profile", "काम की प्रोफ़ाइल") }} />

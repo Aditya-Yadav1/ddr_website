@@ -14,12 +14,7 @@ function createMarketplace(adapter) {
   };
   const defaultHours = { days: [0, 1, 2, 3, 4, 5, 6], start: "09:00", end: "18:00", buffer: 30 };
   const units = { visit: "diagnostic visit", hourly: "hour", fixed: "package" };
-  const services = [
-    { id: "plumbing", name: "Plumbing", icon: "wrench", note: "Leaks, taps & fittings", terms: ["plumb", "tap", "leak", "pipe", "drain", "toilet"], tasks: ["Fix a leaking tap", "Unblock a drain", "Install a fitting", "Other plumbing work"] },
-    { id: "electrical", name: "Electrical", icon: "bolt", note: "Fans, lights & wiring", terms: ["electr", "fan", "light", "switch", "wiring", "socket"], tasks: ["Repair a switch or socket", "Install a light or fan", "Check wiring", "Other electrical work"] },
-    { id: "cleaning", name: "Home cleaning", icon: "brush", note: "Rooms, kitchens & more", terms: ["clean", "bathroom", "kitchen", "dust"], tasks: ["Clean a kitchen", "Clean a bathroom", "Clean a room", "Other cleaning work"] },
-    { id: "painting", name: "Painting", icon: "roller", note: "Walls, touch-ups & finishes", terms: ["paint", "wall", "touch-up", "roller"], tasks: ["Touch up a wall", "Paint one room", "Check a damp patch", "Other painting work"] },
-  ];
+  const services = require("./service-catalog").services;
 
   const samplePros = [
     ["ravi-kumar", "Ravi Kumar", "plumbing", 8, 650, "visit", 4.9, 128, "today", "Leak detection, tap repairs and bathroom fittings. I explain the fault and give you a price before starting any extra work.", ["Kannada", "Hindi", "English"], 1],
@@ -73,7 +68,10 @@ function createMarketplace(adapter) {
     return index < 0 ? null : personService + "-" + index;
   }
   function servesTask(person, scope) {
-    return !scope || Boolean(person?.specializations?.includes(taskId(person.service, scope)));
+    if (!scope) return true;
+    const id = taskId(person?.service, scope);
+    if (!id) return false;
+    return person?.specializations?.length ? person.specializations.includes(id) : Number(id.split("-").at(-1)) < 4;
   }
   function matches(query) {
     const normalized = query.trim().toLowerCase();
@@ -181,7 +179,7 @@ function createMarketplace(adapter) {
 
   function available(person, area, appointment = "", state = read(), timing = "", scope = "", pinCode) {
     return Boolean(person?.published && covers(person, area, pinCode)
-      && (!scope || !person.specializations?.length || servesTask(person, scope))
+      && servesTask(person, scope)
       && !slotError(person, { appointment, timing, unit: person.unit }, state));
   }
 
@@ -265,7 +263,7 @@ function createMarketplace(adapter) {
     if (!trade?.tasks.includes(scope) || !covers(person, area, pinCode)) {
       return { error: pinCode ? "This worker does not serve this PIN code." : "This worker does not serve the requested location.", code: "LOCATION_UNAVAILABLE" };
     }
-    if (brief && person.specializations?.length && !servesTask(person, scope)) {
+    if (brief && !servesTask(person, scope)) {
       return { error: "This worker no longer lists this task.", code: "TASK_UNAVAILABLE" };
     }
     const plus = tier === "plus" ? person.plus : null;
@@ -330,7 +328,7 @@ function createMarketplace(adapter) {
     if (next === "accepted") {
       const person = pro(job.proId, state);
       if ((job.pinCode || job.agreementVersion) && (!person || !covers(person, job.area, job.pinCode)
-        || (job.agreementVersion && person.specializations?.length && !servesTask(person, job.scope)))) {
+        || (job.agreementVersion && !servesTask(person, job.scope)))) {
         return { error: "The worker's coverage or task skills changed.", code: "TASK_UNAVAILABLE" };
       }
       const error = slotError(person, job, state, now);

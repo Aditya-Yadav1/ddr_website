@@ -1,0 +1,96 @@
+import { useEffect, useState } from "react";
+import { api } from "../src/api";
+import { useCopy } from "../src/language";
+import { useSession } from "../src/session";
+import { Body, Button, Feedback, Field, Heading, Page, Panel, Row, Section } from "../src/ui";
+
+type AdminOverview = {
+  metrics: { accounts: number; professionals: number; openSupport: number; activeBookings: number; completedBookings: number };
+  professionals: { id: string; name: string; service: string; published: boolean; trust: { suspended: boolean; checks: Record<string, { status: string }> } }[];
+  verification: { worker: string; requested: number }[];
+  support: { id: string; owner: string; job: string; category: string; message: string; created: number }[];
+  reports: { id: string; worker: string; job: string; message: string; created: number }[];
+  deletionRequests: { owner: string; requested: number }[];
+  audit: { actor: string; action: string; subject: string; reason: string; created: number }[];
+};
+export default function Admin() {
+  const { token, snapshot } = useSession();
+  const { t, dateTime } = useCopy();
+  const [data, setData] = useState<AdminOverview | null>(null);
+  const [error, setError] = useState<unknown>();
+  const [busy, setBusy] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const [response, setResponse] = useState("");
+  const [reason, setReason] = useState("");
+  const [reference, setReference] = useState("");
+  const [expiry, setExpiry] = useState("");
+  const [confirm, setConfirm] = useState("");
+  useEffect(() => {
+    if (!token || !snapshot?.state.isAdmin) return;
+    let active = true;
+    void api<AdminOverview>("admin-overview", token).then((next) => { if (active) { setData(next); setError(null); } })
+      .catch((failure) => { if (active) setError(failure); });
+    return () => { active = false; };
+  }, [token, snapshot?.state.isAdmin, refresh]);
+  async function act(action: string, body: Record<string, string | number | boolean>) {
+    if (!token || busy) return;
+    setBusy(true); setError(null);
+    try { await api(action, token, body); setConfirm(""); setResponse(""); setReason(""); setReference(""); setExpiry(""); setRefresh((value) => value + 1); }
+    catch (failure) { setError(failure); }
+    finally { setBusy(false); }
+  }
+  if (!snapshot?.state.isAdmin) return <Page><Heading>{t("Operations access required", "संचालन की अनुमति चाहिए")}</Heading>
+    <Body>{t("This workspace is for accounts granted access by an operator.", "यह जगह उन खातों के लिए है जिन्हें ऑपरेटर ने अनुमति दी है।")}</Body></Page>;
+  const workerName = (id: string) => data?.professionals.find((item) => item.id === id)?.name || id;
+  return <Page><Section><Heading>{t("Marketplace operations", "बाज़ार संचालन")}</Heading>
+    <Body>{t("Live records from the marketplace. Review each action before applying it.", "बाज़ार के वास्तविक रिकॉर्ड। हर कार्रवाई पहले जाँचें।")}</Body></Section>
+    <Feedback error={error} />{!data && <Button secondary label={t("Load operations", "संचालन जानकारी लोड करें")} onPress={() => setRefresh((value) => value + 1)} />}
+    {data && <>
+      <Row>{Object.entries(data.metrics).map(([key, value]) => <Panel key={key}><Body small>{key.replace(/([A-Z])/g, " $1")}</Body><Heading size="medium">{value}</Heading></Panel>)}</Row>
+      <Section><Heading size="medium">{t("Verification requests", "जाँच के अनुरोध")}</Heading>
+        {!data.verification.length && <Body>{t("No requests waiting", "कोई अनुरोध बाकी नहीं")}</Body>}
+        {data.verification.map((item) => <Panel key={item.worker}><Heading size="small">{workerName(item.worker)}</Heading><Body small>{dateTime(item.requested)}</Body>
+          <Body small>{t("Review evidence outside this dashboard before recording a check.", "जाँच दर्ज करने से पहले इस डैशबोर्ड के बाहर प्रमाण देखें।")}</Body>
+          {(["identity", "background", "skills"] as const).map((kind) => <Row key={kind}><Body>{kind} · {data.professionals.find((person) => person.id === item.worker)?.trust.checks[kind]?.status || "not checked"}</Body>
+            <Button compact secondary label={t("Record check", "जाँच दर्ज करें")} onPress={() => setConfirm("review:" + item.worker + ":" + kind)} /></Row>)}
+          {confirm.startsWith("review:" + item.worker + ":") && <>
+            <Field label={t("Private evidence reference", "निजी प्रमाण संदर्भ")} value={reference} onChangeText={setReference} maxLength={160} />
+            <Field label={t("Expiry date (YYYY-MM-DD)", "समाप्ति तारीख (YYYY-MM-DD)")} value={expiry} onChangeText={setExpiry} placeholder="2027-11-24" />
+            <Row><Button disabled={busy || reference.trim().length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(expiry)} label={t("Approve check", "जाँच मंज़ूर करें")}
+              onPress={() => void act("admin-worker-review", { worker: item.worker, kind: confirm.split(":")[2], status: "verified", reference, expiresAt: Date.parse(expiry + "T23:59:59+05:30") })} />
+              <Button secondary danger disabled={busy || reference.trim().length < 3} label={t("Reject check", "जाँच अस्वीकार करें")}
+                onPress={() => void act("admin-worker-review", { worker: item.worker, kind: confirm.split(":")[2], status: "rejected", reference })} />
+              <Button secondary label={t("Cancel", "रद्द करें")} onPress={() => setConfirm("")} /></Row>
+          </>}
+        </Panel>)}</Section>
+      <Section><Heading size="medium">{t("Open support requests", "खुले सहायता अनुरोध")}</Heading>
+        {!data.support.length && <Body>{t("No open support requests", "कोई खुला सहायता अनुरोध नहीं")}</Body>}
+        {data.support.map((ticket) => <Panel key={ticket.id}><Body strong>{ticket.category} · {ticket.job}</Body><Body>{ticket.message}</Body><Body small>{dateTime(ticket.created)}</Body>
+          {confirm === "support:" + ticket.id ? <><Field label={t("Reply to customer", "ग्राहक को जवाब")} value={response} onChangeText={setResponse} multiline maxLength={1000} />
+            <Row><Button disabled={busy || response.trim().length < 3} label={t("Send reply and close", "जवाब भेजें और बंद करें")}
+              onPress={() => void act("admin-support-resolve", { id: ticket.id, owner: ticket.owner, response })} />
+              <Button secondary label={t("Cancel", "रद्द करें")} onPress={() => setConfirm("")} /></Row></>
+            : <Button secondary label={t("Reply", "जवाब दें")} onPress={() => setConfirm("support:" + ticket.id)} />}</Panel>)}</Section>
+      <Section><Heading size="medium">{t("Safety reports", "सुरक्षा रिपोर्ट")}</Heading>
+        {!data.reports.length && <Body>{t("No open reports", "कोई खुली रिपोर्ट नहीं")}</Body>}
+        {data.reports.map((report) => <Panel key={report.id}><Body strong>{workerName(report.worker)} · {report.job}</Body><Body>{report.message}</Body>
+          {confirm === "report:" + report.id ? <><Field label={t("Reporter-safe resolution", "रिपोर्ट करने वाले के लिए समाधान")} value={reason} onChangeText={setReason} multiline maxLength={1000} />
+            <Row><Button disabled={busy || reason.trim().length < 10} label={t("Resolve report", "रिपोर्ट का समाधान दर्ज करें")}
+              onPress={() => void act("admin-report-resolve", { id: report.id, reason })} /><Button secondary label={t("Cancel", "रद्द करें")} onPress={() => setConfirm("")} /></Row></>
+            : <Button secondary label={t("Record resolution", "समाधान दर्ज करें")} onPress={() => setConfirm("report:" + report.id)} />}</Panel>)}</Section>
+      <Section><Heading size="medium">{t("Professionals", "काम करने वाले")}</Heading>
+        {data.professionals.map((person) => <Panel key={person.id}><Heading size="small">{person.name}</Heading><Body small>{person.service} · {person.trust.suspended ? t("Suspended", "निलंबित") : person.published ? t("Published", "प्रकाशित") : t("Paused", "रुका हुआ")}</Body>
+          {confirm === "suspend:" + person.id ? <><Field label={t("Reason for action", "कार्रवाई का कारण")} value={reason} onChangeText={setReason} multiline maxLength={300} />
+            <Row><Button danger disabled={busy || reason.trim().length < 10} label={person.trust.suspended ? t("Confirm reinstatement", "बहाली की पुष्टि करें") : t("Confirm suspension", "निलंबन की पुष्टि करें")}
+              onPress={() => void act("admin-worker-suspend", { worker: person.id, suspended: !person.trust.suspended, reason })} />
+              <Button secondary label={t("Cancel", "रद्द करें")} onPress={() => setConfirm("")} /></Row></>
+            : <Button secondary danger label={person.trust.suspended ? t("Reinstate", "बहाल करें") : t("Suspend", "निलंबित करें")} onPress={() => setConfirm("suspend:" + person.id)} />}</Panel>)}</Section>
+      <Section><Heading size="medium">{t("Account deletion requests", "खाता हटाने के अनुरोध")}</Heading>
+        {!data.deletionRequests.length && <Body>{t("No requests", "कोई अनुरोध नहीं")}</Body>}
+        {data.deletionRequests.map((item) => <Panel key={item.owner}><Body>{item.owner}</Body><Body small>{dateTime(item.requested)}</Body>
+          <Body small>{t("Handle this request through the approved account deletion process. This dashboard does not delete records.", "इस अनुरोध को स्वीकृत खाता हटाने की प्रक्रिया से सँभालें। यह डैशबोर्ड रिकॉर्ड नहीं हटाता।")}</Body></Panel>)}</Section>
+      <Section><Heading size="medium">{t("Recent audit", "हाल की कार्रवाई")}</Heading>
+        {data.audit.map((entry, index) => <Body key={entry.created + ":" + index} small>{dateTime(entry.created)} · {entry.action} · {entry.subject}</Body>)}</Section>
+    </>}
+  </Page>;
+}

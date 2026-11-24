@@ -10,6 +10,7 @@ export default function SignIn() {
   const { token, auth, startPhone, role: sessionRole, error: sessionError } = useSession();
   const { t } = useCopy();
   const [phoneMode, setPhoneMode] = useState<PhoneMode>();
+  const [googleReady, setGoogleReady] = useState(false);
   const [mode, setMode] = useState<"phone" | "login" | "register">("phone");
   const [phone, setPhone] = useState("");
   const [challenge, setChallenge] = useState<PhoneChallenge | null>(null);
@@ -22,11 +23,23 @@ export default function SignIn() {
   useEffect(() => {
     if (offlineDemo) return;
     let active = true;
-    void api<{ phoneMode: PhoneMode }>("config").then((config) => {
-      if (active) setPhoneMode(config.phoneMode);
+    void api<{ phoneMode: PhoneMode; firebase?: { apiKey: string; authDomain: string; projectId: string; appId: string } | null }>("config").then(async (config) => {
+      if (active) { setPhoneMode(config.phoneMode); setGoogleReady(Boolean(config.firebase)); }
+      if (active && config.firebase) {
+        try { const google = await import("../src/google-auth"); google.configureGoogle(config.firebase); const idToken = await google.finishGoogleRedirect(); if (idToken && active) await auth("google-sign-in", { idToken }); }
+        catch (failure) { if (active) setError(failure); }
+      }
     }).catch(() => {});
     return () => { active = false; };
   }, []);
+
+  async function googleSignIn() {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try { const { startGoogle } = await import("../src/google-auth"); const idToken = await startGoogle(); if (idToken) await auth("google-sign-in", { idToken }); }
+    catch (failure) { setError(failure); }
+    finally { setBusy(false); }
+  }
 
   async function submit() {
     if (pending.current) return;
@@ -72,6 +85,8 @@ export default function SignIn() {
   return <Page>
     <Heading>{title}</Heading>
     <Panel>
+      {googleReady && <Button secondary label={busy ? t("Please wait…", "कृपया रुकें…") : t("Continue with Google", "Google से जारी रखें")} disabled={busy} onPress={() => void googleSignIn()} />}
+      {googleReady && <Body small>{t("Your Google account creates an ASAAN account. Verify your phone separately when a service requires it.", "आपके Google खाते से आसान खाता बनता है। ज़रूरत होने पर फ़ोन अलग से सत्यापित करें।")}</Body>}
       <Heading size="small">{mode === "phone" ? (challenge ? t("Almost there. Your code?", "बस एक कदम और। आपका कोड?") : t("Let’s get you signed in", "चलिए, साइन इन करें"))
         : mode === "register" ? t("Create a preview account", "प्रीव्यू खाता बनाएँ") : t("Preview account sign-in", "प्रीव्यू खाते में साइन इन")}</Heading>
       {mode === "phone" && !challenge && <Field label={t("Indian mobile number", "भारतीय मोबाइल नंबर")}

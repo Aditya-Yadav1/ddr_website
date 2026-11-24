@@ -42,11 +42,10 @@ export function TaskCard({ task, profiles }: { task: typeof tasks[number]; profi
   const router = useRouter();
   const copy = useCopy();
   const workers = profiles.filter((person) => person.service === task.service
-    && (!person.specializations?.length || person.specializations.includes(task.id)))
+    && (person.specializations?.length ? person.specializations.includes(task.id) : task.legacy))
     .sort((a, b) => a.price * (a.unit === "hourly" ? 2 : 1) - b.price * (b.unit === "hourly" ? 2 : 1));
   const first = workers[0];
   return <View style={look.task}>
-    <ServiceImage service={task.service} />
     <Body small>{copy.t(task.name, task.hi)}</Body>
     <Heading size="small">{copy.task(task.service, task.task)}</Heading>
     {first ? <><Body strong>{copy.rate(first)}</Body>

@@ -113,7 +113,10 @@ test("the default website serves shared app screens, deep links and bundles alon
     "/bookings/test-id/review", "/support", "/account", "/worker", "/sign-in"]) {
     const response = await website(route);
     assert.equal(response.status, 200, route);
-    assert.equal(await response.text(), html, route);
+    const routeHtml = await response.text();
+    assert.match(routeHtml, /_expo\/static\/js\/web\//, route);
+    assert.match(routeHtml, /<meta name="robots" content="(index,follow|noindex,nofollow)">/, route);
+    assert.equal(routeHtml.match(/<script[^>]+src="([^"]+)"/)[1], html.match(/<script[^>]+src="([^"]+)"/)[1], route);
   }
   const script = html.match(/<script[^>]+src="([^"]+)"/)[1];
   const bundle = await website(script);
@@ -362,7 +365,7 @@ test("a new customer can discover and book demo workers, pay, and review without
   assert.deepEqual(campusCoverage.body.ids.sort(), profiles.map(({ id }) => id).sort());
   const day = new Date(Date.now() + 2 * 86_400_000 + 19_800_000).toISOString().slice(0, 10);
   for (const worker of profiles) {
-    const scope = catalog.services.find(({ id }) => id === worker.service).tasks.at(-1);
+    const scope = catalog.services.find(({ id }) => id === worker.service).tasks[2];
     const slots = await api("availability?" + new URLSearchParams({ day, pinCode: campusPin, scope }), { token: customer.token });
     assert.ok(slots.body.options[worker.id]?.length, worker.service);
   }
@@ -844,4 +847,102 @@ test("exact service PIN codes control discovery, slots, requests and worker acce
   assert.equal((await accept(inside.body.jobId)).status, 409);
   await api("published", { token: worker.token, body: { enabled: false } });
   assert.deepEqual((await coverage("110075")).body.ids, []);
+});
+
+test("Google sign-in stays unavailable without server configuration and cannot link an unverified identity", async (t) => {
+  const { api, register, inDatabase } = await setup(t);
+  const settings = await api("config");
+  assert.equal(settings.status, 200);
+  assert.equal(settings.body.firebase, null);
+  const guest = await api("google-sign-in", { body: { idToken: "untrusted" } });
+  assert.equal(guest.status, 503);
+  const account = await register("google-link-check");
+  const linked = await api("google-link", { token: account.token, body: { idToken: "untrusted" } });
+  assert.equal(linked.status, 503);
+  assert.equal(inDatabase((db) => db.prepare("SELECT COUNT(*) AS count FROM firebase_identities").get().count), 0);
+});
+
+test("verified phone linking preserves the signed-in account and refuses a second owner", async (t) => {
+  const { api, register, inDatabase } = await setup(t);
+  const first = await register("link-first");
+  const second = await register("link-second");
+  const started = await api("phone-start", { body: { phone: "+919876543210" } });
+  assert.equal(started.status, 200, started.body.error);
+  const linked = await api("phone-link", { token: first.token, body: { challenge: started.body.challenge, code: started.body.previewCode } });
+  assert.equal(linked.status, 200, linked.body.error);
+  assert.equal(linked.body.state.account.id, first.id);
+  assert.equal(linked.body.state.account.phone, "+919876543210");
+  assert.equal(inDatabase((db) => db.prepare("SELECT owner FROM phone_accounts WHERE phone=?").get("+919876543210").owner), first.id);
+  const secondChallenge = await api("phone-start", { body: { phone: "+919876543210" } });
+  const conflict = await api("phone-link", { token: second.token, body: { challenge: secondChallenge.body.challenge, code: secondChallenge.body.previewCode } });
+  assert.equal(conflict.status, 409);
+  const phoneLogin = await api("phone-verify", { body: { challenge: secondChallenge.body.challenge, code: secondChallenge.body.previewCode } });
+  assert.equal(phoneLogin.status, 200);
+  assert.equal(phoneLogin.body.state.account.id, first.id);
+});
+
+test("notification read state persists and is owned by the recipient", async (t) => {
+  const { api, register, inDatabase } = await setup(t);
+  const owner = await register("notice-owner");
+  const other = await register("notice-other");
+  const id = randomUUID();
+  inDatabase((db) => db.prepare("INSERT INTO booking_events VALUES (?,?,?,?,?,?)")
+    .run(id, owner.id, "example-job", "customer", "Booking accepted", Date.now()));
+  const before = await api("state", { token: owner.token });
+  assert.equal(before.body.state.bookingUpdates.find((item) => item.id === id).read, false);
+  assert.equal((await api("notification-read", { token: other.token, body: { id } })).status, 404);
+  assert.equal((await api("notification-read", { body: { id } })).status, 401);
+  assert.equal((await api("notification-read", { token: owner.token, body: { id } })).status, 200);
+  const after = await api("state", { token: owner.token });
+  assert.equal(after.body.state.bookingUpdates.find((item) => item.id === id).read, true);
+});
+
+test("account deletion requests are private, idempotent and reach the operator queue", async (t) => {
+  const { api, register, inDatabase } = await setup(t);
+  const owner = await register("delete-requester");
+  const other = await register("delete-other");
+  assert.equal((await api("account-deletion-request", { body: {} })).status, 401);
+  const requested = await api("account-deletion-request", { token: owner.token, body: {} });
+  assert.equal(requested.status, 200);
+  assert.equal(requested.body.state.deletionRequested, true);
+  assert.equal((await api("account-deletion-request", { token: owner.token, body: {} })).status, 200);
+  assert.equal((await api("state", { token: other.token })).body.state.deletionRequested, false);
+  assert.equal(inDatabase((db) => db.prepare("SELECT COUNT(*) AS count FROM account_deletion_requests WHERE owner=? AND status='open'").get(owner.id).count), 1);
+});
+
+test("operations API requires an explicit admin grant and audits support actions", async (t) => {
+  const { api, register, inDatabase } = await setup(t);
+  const admin = await register("admin-test");
+  const customer = await register("support-test");
+  assert.equal((await api("admin-overview", { token: admin.token })).status, 403);
+  assert.equal((await api("admin-support-resolve", { token: admin.token, body: { id: "x", owner: customer.id, response: "Reviewed" } })).status, 403);
+  inDatabase((db) => {
+    db.prepare("INSERT INTO admin_accounts VALUES (?,?,?)").run(admin.id, "trusted test operator", Date.now());
+    db.prepare("INSERT INTO support_tickets(id,owner,job,category,message,created) VALUES (?,?,?,?,?,?)")
+      .run("ticket-admin-test", customer.id, "booking-test", "booking", "Please check my appointment.", Date.now());
+  });
+  const state = await api("state", { token: admin.token });
+  assert.equal(state.body.state.isAdmin, true);
+  const overview = await api("admin-overview", { token: admin.token });
+  assert.equal(overview.status, 200);
+  assert.equal(overview.body.support.length, 1);
+  assert.equal((await api("admin-overview", { token: customer.token })).status, 403);
+  assert.equal((await api("admin-support-resolve", { token: customer.token, body: { id: "ticket-admin-test", owner: customer.id, response: "Reviewed" } })).status, 403);
+  const result = await api("admin-support-resolve", { token: admin.token, body: { id: "ticket-admin-test", owner: customer.id, response: "We reviewed the appointment." } });
+  assert.equal(result.status, 200, result.body.error);
+  assert.equal(inDatabase((db) => db.prepare("SELECT status FROM support_tickets WHERE id=?").get("ticket-admin-test").status), "resolved");
+  assert.equal(inDatabase((db) => db.prepare("SELECT COUNT(*) AS n FROM admin_audit WHERE actor=? AND action='support-resolve'").get(admin.id).n), 1);
+});
+
+test("customer profile name persists without changing another account", async (t) => {
+  const { api, register } = await setup(t);
+  const first = await register("profile-first");
+  const second = await register("profile-second");
+  assert.equal((await api("account-profile", { body: { name: "Aditi Sharma" } })).status, 401);
+  assert.equal((await api("account-profile", { token: first.token, body: { name: "<script>" } })).status, 400);
+  const saved = await api("account-profile", { token: first.token, body: { name: "Aditi Sharma" } });
+  assert.equal(saved.status, 200, saved.body.error);
+  assert.equal(saved.body.state.account.name, "Aditi Sharma");
+  assert.equal((await api("state", { token: first.token })).body.state.account.name, "Aditi Sharma");
+  assert.equal((await api("state", { token: second.token })).body.state.account.name, undefined);
 });
