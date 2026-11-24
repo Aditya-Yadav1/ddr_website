@@ -1,11 +1,13 @@
 # ASAAN launch checklist
 
-The connected Expo website and Node API are the intended production deployment. The GitHub Pages export is an offline demonstration with fictional accounts, professionals, and payments.
+The connected Expo website and Node API run at the same public HTTPS address. The GitHub repository contains the release source. Give customers the HTTPS service address after the production checks pass.
 
 ## Engineering checks
 
 - Run `npm --prefix mobile ci`, `npm run typecheck`, `npm test`, `npm run build:web`, and `npm run build:pages` before deployment.
-- Deploy the website and API at one HTTPS origin. Set `HANDYHIVE_PUBLIC_ORIGIN`, persistent `HANDYHIVE_DB`, production phone verification variables, and the ASAAN Firebase public web config. See `.env.example` and `FIREBASE_SETUP.md`.
+- Open the [Render Blueprint](https://render.com/deploy?repo=https://github.com/Aditya-Yadav1/ddr_website) and review the service and persistent disk. Set Twilio and any Firebase Admin credentials directly in the host. For an existing Render service, deploy the latest `main` commit after configuration is complete.
+- Set `HANDYHIVE_PUBLIC_ORIGIN`, persistent `HANDYHIVE_DB`, production phone verification variables, and the ASAAN Firebase public web config. See `.env.example` and `FIREBASE_SETUP.md`.
+- With `EXPO_PUBLIC_HANDYHIVE_API_URL` set to the service's HTTPS origin plus `/api/v1`, run `node scripts/check-api.js --website`. This checks that the host serves both the connected web bundle and a production API. Verify SMS delivery and Google sign-in using real test accounts separately.
 - Keep preview accounts, OTPs, sample workers, and test payments on a separate database and deployment. Confirm the production server rejects preview mode.
 - Configure an operations administrator with `scripts/admin-access.js` after creating the intended real account. Verify support and worker review audit records.
 - Configure backups for the persistent SQLite database and test restoration on an isolated environment.

@@ -7,7 +7,7 @@ import { Body, Button, Feedback, Field, Heading, Page, Panel, Row } from "../src
 
 export default function SignIn() {
   const { next, support, job, topic, role } = useLocalSearchParams<{ role?: string; next?: string; support?: string; job?: string; topic?: string }>();
-  const { token, auth, startPhone, role: sessionRole, error: sessionError } = useSession();
+  const { token, auth, chooseRole, startPhone, role: sessionRole, error: sessionError } = useSession();
   const { t } = useCopy();
   const [phoneMode, setPhoneMode] = useState<PhoneMode>();
   const [googleReady, setGoogleReady] = useState(false);
@@ -36,7 +36,12 @@ export default function SignIn() {
   async function googleSignIn() {
     if (busy) return;
     setBusy(true); setError(null);
-    try { const { startGoogle } = await import("../src/google-auth"); const idToken = await startGoogle(); if (idToken) await auth("google-sign-in", { idToken }); }
+    try {
+      if (role === "customer" || role === "worker") await chooseRole(role);
+      const { startGoogle } = await import("../src/google-auth");
+      const idToken = await startGoogle();
+      if (idToken) await auth("google-sign-in", { idToken });
+    }
     catch (failure) { setError(failure); }
     finally { setBusy(false); }
   }
@@ -47,6 +52,7 @@ export default function SignIn() {
     setBusy(true);
     setError(null);
     try {
+      if (role === "customer" || role === "worker") await chooseRole(role);
       if (offlineDemo) await auth("demo-sign-in", { account: role === "worker" ? "worker-demo" : "customer-demo" });
       else if (mode !== "phone") await auth(mode, { handle, password });
       else if (challenge) await auth("phone-verify", { challenge: challenge.challenge, code });

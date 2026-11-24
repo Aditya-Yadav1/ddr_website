@@ -24,6 +24,25 @@ export default function Home() {
   const services = snapshot?.state.catalog.services ?? [];
   const localServices = checked ? new Set(snapshot?.state.profiles.filter((person) => ids.includes(person.id)).map((person) => person.service)) : null;
   const pilotTasks = tasks.filter((task) => rateFor(task.service, task.task, pinCode));
+  if (!token) return <Page>
+    <View style={styles.welcome}>
+      <Heading>Ghar ka Kaam · ASAAN</Heading>
+      <View style={[styles.roles, wide && styles.rolesWide]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("Customer", "ग्राहक")}
+          onPress={() => router.push({ pathname: "/sign-in", params: { role: "customer" } })}
+          style={({ pressed }) => [styles.roleCard, styles.customerCard, pressed && styles.pressed]}>
+          <Text style={styles.customerTitle}>{t("Customer", "ग्राहक")}</Text>
+          <Text style={styles.customerDescription}>{t("Find and book local help", "स्थानीय मदद खोजें और बुक करें")}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("Worker", "काम करने वाले")}
+          onPress={() => router.push({ pathname: "/sign-in", params: { role: "worker" } })}
+          style={({ pressed }) => [styles.roleCard, styles.workerCard, pressed && styles.pressed]}>
+          <Text style={styles.workerTitle}>{t("Worker", "काम करने वाले")}</Text>
+          <Text style={styles.workerDescription}>{t("Offer services and manage requests", "सेवाएँ दें और अनुरोध सँभालें")}</Text>
+        </Pressable>
+      </View>
+    </View>
+  </Page>;
   return <Page>
     {!wide && <View style={styles.top}><Row>
       {wide && <Button compact secondary label={t("All services", "सभी सेवाएँ")} onPress={() => router.push({ pathname: "/services/[id]", params: { id: "all" } })} />}
@@ -74,6 +93,17 @@ export default function Home() {
   </Page>;
 }
 const styles = StyleSheet.create({
+  welcome: { paddingVertical: 32, gap: 22 },
+  roles: { gap: 12 },
+  rolesWide: { flexDirection: "row" },
+  roleCard: { flex: 1, minHeight: 135, padding: 22, gap: 6, borderRadius: 16, justifyContent: "center" },
+  customerCard: { backgroundColor: colors.blue },
+  workerCard: { backgroundColor: colors.warm, borderColor: colors.accent, borderWidth: 1 },
+  customerTitle: { color: colors.white, fontSize: 24, fontWeight: "700" },
+  customerDescription: { color: colors.white, fontSize: 16 },
+  workerTitle: { color: colors.ink, fontSize: 24, fontWeight: "700" },
+  workerDescription: { color: colors.ink, fontSize: 16 },
+  pressed: { opacity: 0.85 },
   top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 },
   hero: { backgroundColor: colors.warm, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   heroWide: { flexDirection: "row", minHeight: 390 }, heroCopy: { flex: 1, padding: 26, gap: 14, minWidth: 270 },

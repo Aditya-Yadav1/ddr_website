@@ -31,7 +31,7 @@ function Navigation() {
     headerRight: () => width >= 850 ? <DesktopNav /> : <Brand compact={width < 600} />,
   }}>
     <Stack.Screen name="index" options={{ title: "ASAAN", headerBackVisible: false,
-      headerTitle: () => <Brand />, headerRight: () => width >= 850 ? <DesktopNav /> : <LanguageButton /> }} />
+      headerTitle: () => <Brand />, headerRight: () => token && width >= 850 ? <DesktopNav /> : <LanguageButton /> }} />
     <Stack.Screen name="information/[topic]" options={{ title: t("Information", "जानकारी") }} />
     <Stack.Screen name="help" options={{ title: t("Help", "सहायता") }} />
     <Stack.Screen name="customer" options={{ title: t("Customer", "ग्राहक") }} />

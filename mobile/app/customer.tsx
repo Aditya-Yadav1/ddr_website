@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { useCopy } from "../src/language";
 import { LocationField, PinGate, useLocation } from "../src/location";
 import { useSession } from "../src/session";
-import { colors, Heading, MainNav, Page, ServiceImage } from "../src/ui";
+import { Body, colors, Heading, MainNav, Page, Panel, ServiceImage } from "../src/ui";
 
 export default function Customer() {
   const { snapshot } = useSession();
@@ -13,6 +13,10 @@ export default function Customer() {
   return <Page footer={<MainNav selected="discover" />}>
     {!pinCode ? <PinGate demoPin={snapshot?.state.demoPinCode} /> : <>
       <LocationField compact />
+      {checked && !ids.length && <Panel>
+        <Heading size="small">{t("No workers available in this PIN code yet", "इस पिन कोड में अभी कोई काम करने वाला उपलब्ध नहीं है")}</Heading>
+        <Body>{t("Change the visit location to check another area.", "दूसरा इलाका देखने के लिए विज़िट की जगह बदलें।")}</Body>
+      </Panel>}
       {checked && ids.length > 0 && <><Heading>{t("What do you need help with?", "किस काम में मदद चाहिए?")}</Heading>
         <View style={styles.grid}>{snapshot?.state.catalog.services.map((service) =>
           <Pressable accessibilityRole="button" key={service.id}
