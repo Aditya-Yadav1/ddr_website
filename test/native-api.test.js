@@ -146,23 +146,36 @@ test("invited accounts share a booking only after a separate worker passes opera
     NODE_ENV: "production", HANDYHIVE_HOST: "127.0.0.1", HANDYHIVE_PORT: String(port),
     HANDYHIVE_PUBLIC_ORIGIN: "https://asaan.example.com", HANDYHIVE_PHONE_MODE: "invite",
     HANDYHIVE_SIGNUP_INVITE: "invited-integration-test-only",
+    HANDYHIVE_OPERATOR_GOOGLE_EMAIL: "asaan-test-operator@gmail.com",
+    HANDYHIVE_FIREBASE_API_KEY: "test-key", HANDYHIVE_FIREBASE_AUTH_DOMAIN: "testing.firebaseapp.com",
+    HANDYHIVE_FIREBASE_PROJECT_ID: "testing", HANDYHIVE_FIREBASE_APP_ID: "test-app-id",
   });
   assert.equal((await api("discover")).status, 401);
   assert.equal((await api("register", { body: { handle: "outside", password, invite: "incorrect" } })).status, 403);
   const worker = await registerWorker();
   const customer = await register("test-customer");
+  const operator = await register("test-operator");
+  assert.equal((await api("config")).body.firebase, null);
+  assert.equal((await api("config", { headers: { Host: "127.0.0.1:" + port } })).body.operatorGoogleOnly, true);
+  assert.equal((await api("admin-overview", { token: customer.token })).status, 403);
   assert.equal((await api("phone-start", { token: customer.token, body: { phone: "+919876543210" } })).status, 404);
   assert.deepEqual((await api("coverage?pinCode=110017", { token: customer.token })).body.ids, []);
   const consent = await api("verification-request", { token: worker.token, body: { consent: "worker-checks-v1" } });
   assert.equal(consent.status, 200);
   inDatabase((db) => {
-    const trust = require("../worker-trust")(db, false, true);
-    const workerProfile = consent.body.state.profile;
-    for (const kind of ["identity", "background", "skills"]) {
-      trust.review(workerProfile, { kind, status: "verified", reviewer: "test operator",
-        reference: "isolated test evidence", expiresAt: Date.now() + 86400000 });
-    }
+    const now = Date.now();
+    db.prepare("INSERT INTO admin_accounts(owner,granted_by,granted_at) VALUES (?,?,?)").run(customer.id, "legacy grant", Date.now());
+    const profile = db.prepare("INSERT INTO account_profiles(owner,email,updated) VALUES (?,?,?)");
+    profile.run(customer.id, "asaan-test-operator@gmail.com", now);
+    profile.run(operator.id, "asaan-test-operator@gmail.com", now);
+    db.prepare("INSERT INTO firebase_identities(uid,owner,created) VALUES (?,?,?)").run("isolated-google-fixture", operator.id, now);
   });
+  assert.equal((await api("admin-overview", { token: customer.token })).status, 403);
+  for (const kind of ["identity", "background", "skills"]) {
+    const review = await api("admin-worker-review", { token: operator.token, body: { worker: worker.id, kind,
+      status: "verified", reference: "isolated test evidence", expiresAt: Date.now() + 86400000 } });
+    assert.equal(review.status, 200, review.body.error);
+  }
   assert.deepEqual((await api("coverage?pinCode=110017", { token: customer.token })).body.ids, [worker.id]);
   const appointment = new Date(Date.now() + 2 * 86400000 + 19800000).toISOString().slice(0, 10) + "T10:00";
   const booked = await api("request", { token: customer.token, body: booking(worker.id, appointment) });

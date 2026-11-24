@@ -1,6 +1,8 @@
 # ASAAN operations access
 
-The `/admin` workspace is backed by `/api/v1/admin-*` endpoints. Every endpoint checks the authenticated account against `admin_accounts` on the server. Registering or signing in with Google never grants admin access.
+The `/admin` workspace uses `/api/v1/admin-*` endpoints. Each request requires either the configured Google operator identity or an explicit admin grant, depending on the configuration.
+
+To use a single Google operator, set `HANDYHIVE_OPERATOR_GOOGLE_EMAIL` to the authorised Gmail address and configure the ASAAN Firebase web app. The server checks the verified Google email for every operations request. This setting supersedes manual admin grants. Invited testing exposes operator sign-in only through `http://127.0.0.1:<port>/sign-in?role=operator` on the server computer. The public HTTPS tunnel continues to use invited accounts.
 
 Bootstrap an operator account using a trusted shell with access to the deployment's private SQLite disk. First sign in normally on ASAAN, then find that account's UUID through a private database query. Grant access with:
 

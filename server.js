@@ -20,7 +20,8 @@ const migrate = require("./db-migrations.js");
 const firebaseAuth = require("./firebase-auth.js");
 const siteMetadata = require("./site-metadata.js");
 const config = require("./server-config.js")(process.env);
-const firebaseConfig = config.invitedTest ? null : firebaseAuth.publicConfig(process.env);
+const firebaseConfig = !config.invitedTest || config.operatorEmail ? firebaseAuth.publicConfig(process.env) : null;
+if (config.operatorEmail && !firebaseConfig) throw new Error("The operator requires the ASAAN Firebase web configuration.");
 const verifyFirebase = firebaseConfig ? firebaseAuth.verifier(process.env) : null;
 const { createOnlinePayments, reserve: reserveCheckout, record: recordCheckout } = require("./online-payments");
 const onlinePayments = createOnlinePayments(process.env, config);
@@ -98,9 +99,14 @@ const insertSupport = db.prepare("INSERT INTO support_tickets (id, owner, job, c
 const listEvents = db.prepare("SELECT id,job,role,label,created FROM booking_events WHERE owner=? ORDER BY created DESC,rowid DESC LIMIT 12");
 const insertEvent = db.prepare("INSERT INTO booking_events VALUES(?,?,?,?,?,?)");
 const hasAdminAccess = db.prepare("SELECT 1 FROM admin_accounts WHERE owner=?");
+const googleOperator = db.prepare("SELECT 1 FROM firebase_identities JOIN account_profiles USING(owner) WHERE owner=? AND lower(email)=?");
 const recordAdmin = db.prepare("INSERT INTO admin_audit VALUES (?,?,?,?,?,?)");
+function isAdmin(account) {
+  return Boolean(account && (config.operatorEmail
+    ? googleOperator.get(account.id, config.operatorEmail) : hasAdminAccess.get(account.id)));
+}
 function requireAdmin(account) {
-  if (!account || !hasAdminAccess.get(account.id)) throw failure(403, "Admin access required.");
+  if (!isAdmin(account)) throw failure(403, "Admin access required.");
   return account;
 }
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -248,7 +254,7 @@ function snapshot(market, state, query, native) {
       safetyReports: account ? trust.reports(account.id) : [],
       supportTickets: account ? listSupport.all(account.id) : [],
       deletionRequested: account ? Boolean(db.prepare("SELECT 1 FROM account_deletion_requests WHERE owner=? AND status='open'").get(account.id)) : false,
-      isAdmin: account ? Boolean(hasAdminAccess.get(account.id)) : false,
+      isAdmin: isAdmin(account),
       blockedWorkers: account ? trust.blocks(account.id).map(({ worker }) => ({
         id: worker, name: state.profiles.find((person) => person.id === worker)?.name || "Worker",
       })) : [],
@@ -643,7 +649,8 @@ function mutate(action, market, state, input, native = false, requestFingerprint
 }
 
 async function readBody(req) {
-  if (req.headers.origin && req.headers.origin !== origin) throw failure(403, "This request came from another site.");
+  const expectedOrigin = localOperatorRequest(req) ? "http://" + req.headers.host : origin;
+  if (req.headers.origin && req.headers.origin !== expectedOrigin) throw failure(403, "This request came from another site.");
   if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(req.headers["content-type"] || "")) throw failure(415, "Expected JSON.");
   req.setEncoding("utf8");
   let data = "";
@@ -802,6 +809,11 @@ function nativeMutation(action, market, state, input) {
   return { jobId, ...(result.sideTableChanged && { sideTableChanged: true }) };
 }
 
+function localOperatorRequest(req) {
+  return config.invitedTest && Boolean(config.operatorEmail) && req.socket.remoteAddress === "127.0.0.1"
+    && req.headers.host === "127.0.0.1:" + server.address().port;
+}
+
 async function handleApi(req, res, url, native) {
   const action = url.pathname.slice(native ? "/api/v1/".length : "/api/".length);
   if (native && !nativeActions.has(action)) throw failure(404, "This action is unavailable.");
@@ -809,7 +821,8 @@ async function handleApi(req, res, url, native) {
   const token = sessionToken(req, native);
   const readAccount = () => token ? sessions.account.get(sha256(token), Date.now()) || null : null;
   const snapshotFor = (account, action = () => ({})) => transact(account, action, url.searchParams, native);
-  if (config.invitedTest && (!native || (!["health", "config", "login", "register"].includes(action) && !readAccount()))) {
+  const operatorSignIn = action === "google-sign-in" && localOperatorRequest(req);
+  if (config.invitedTest && (!native || (!operatorSignIn && !["health", "config", "login", "register"].includes(action) && !readAccount()))) {
     throw failure(401, "Sign in to continue.");
   }
 
@@ -840,7 +853,11 @@ async function handleApi(req, res, url, native) {
     db.prepare("SELECT 1").get();
     return send(res, 200, { service: "handyhive", apiVersion: 1, status: "ok" });
   }
-  if (native && action === "config" && req.method === "GET") return send(res, 200, { phoneMode, requireVerification: config.requireVerification, firebase: firebaseConfig });
+  if (native && action === "config" && req.method === "GET") {
+    const operatorGoogleOnly = localOperatorRequest(req);
+    return send(res, 200, { phoneMode, requireVerification: config.requireVerification, operatorGoogleOnly,
+      firebase: !config.invitedTest || operatorGoogleOnly ? firebaseConfig : null });
+  }
   if (native && action === "admin-overview" && req.method === "GET") {
     const admin = requireAdmin(readAccount());
     const store = JSON.parse(getStore.get().body);
@@ -1021,11 +1038,18 @@ async function handleApi(req, res, url, native) {
     return send(res, 200, snapshotFor(null));
   }
   if (native && ["google-sign-in", "google-link"].includes(action)) {
+    if (config.invitedTest && !operatorSignIn) throw failure(404, "Use your invited account to sign in.");
     limitAuth(req);
     if (!verifyFirebase) throw failure(503, "Google sign-in is not configured on this server.", "FIREBASE_NOT_CONFIGURED");
     let identity;
     try { identity = await verifyFirebase(input.idToken); }
     catch { throw failure(401, "Google sign-in could not be verified. Please try again.", "INVALID_FIREBASE_TOKEN"); }
+    if (operatorSignIn && identity.email.toLowerCase() !== config.operatorEmail) {
+      throw failure(403, "Use the Google account authorised to manage workers.");
+    }
+    if (action === "google-link" && config.operatorEmail && identity.email.toLowerCase() === config.operatorEmail) {
+      throw failure(403, "Sign in separately with the authorised Google account to manage workers.");
+    }
     const current = action === "google-link" ? readAccount() : null;
     if (action === "google-link" && !current) throw failure(401, "Sign in to link your account.");
     const account = writeTransaction(() => {
@@ -1082,7 +1106,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, origin);
     native = url.pathname.startsWith("/api/v1/");
     const emulatorHost = "10.0.2.2:" + server.address().port;
-    if (req.headers.host !== new URL(origin).host && !(!config.production && native && req.headers.host === emulatorHost)) {
+    if (req.headers.host !== new URL(origin).host && !localOperatorRequest(req) && !(!config.production && native && req.headers.host === emulatorHost)) {
       throw failure(400, "Use " + origin + ".");
     }
     res.setHeader("X-Content-Type-Options", "nosniff");

@@ -2,6 +2,10 @@
 module.exports = function serverConfig(env) {
   const production = env.NODE_ENV === "production";
   const invitedTest = env.HANDYHIVE_PHONE_MODE === "invite";
+  const operatorEmail = (env.HANDYHIVE_OPERATOR_GOOGLE_EMAIL || "").trim().toLowerCase();
+  if (operatorEmail && !/^[^\s@]+@gmail\.com$/.test(operatorEmail)) {
+    throw new Error("Set the operator to one Gmail account.");
+  }
   const publicOrigin = env.HANDYHIVE_PUBLIC_ORIGIN || "";
   if (publicOrigin) {
     const url = new URL(publicOrigin);
@@ -18,7 +22,7 @@ module.exports = function serverConfig(env) {
   const requireVerification = production || env.HANDYHIVE_REQUIRE_VERIFICATION === "1";
   const previewWorkers = !requireVerification && (env.HANDYHIVE_PHONE_MODE || "preview") === "preview"
     && (env.HANDYHIVE_DEMO_WORKERS === "1" || (env.HANDYHIVE_DEMO_WORKERS !== "0" && host === "127.0.0.1" && !publicOrigin));
-  return { production, invitedTest, publicOrigin, host, trustProxy: env.HANDYHIVE_TRUST_PROXY === "1", requireVerification, previewWorkers };
+  return { production, invitedTest, operatorEmail, publicOrigin, host, trustProxy: env.HANDYHIVE_TRUST_PROXY === "1", requireVerification, previewWorkers };
 };
 module.exports.clientAddress = function clientAddress(req, trustProxy) {
   const forwarded = req.headers["x-forwarded-for"];

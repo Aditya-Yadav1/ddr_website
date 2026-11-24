@@ -99,6 +99,7 @@ export default function Account() {
       {googleReady && !account?.googleLinked && <Body small>{t("Linking keeps this account and its bookings. Use the Google account you want to sign in with later.", "जोड़ने पर यही खाता और बुकिंग बनी रहेंगी। वही Google खाता चुनें जिससे आगे साइन इन करेंगे।")}</Body>}
     </Panel>
     <Feedback error={connectionError} />
+    {snapshot?.state.isAdmin && <Button secondary label={t("Marketplace operations", "बाज़ार संचालन")} onPress={() => router.push("/admin")} />}
     <Button secondary tone="info" label={t("Customer Support", "ग्राहक सहायता")} onPress={() => router.push("/support")} />
     {role === "customer" && <><SavedAddresses /><SavedWorkers /><ProviderSafetyHistory /></>}
     {!!snapshot?.state.bookingUpdates?.length && <Section>

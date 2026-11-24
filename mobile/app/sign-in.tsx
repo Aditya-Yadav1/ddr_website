@@ -11,6 +11,7 @@ export default function SignIn() {
   const { t } = useCopy();
   const [phoneMode, setPhoneMode] = useState<PhoneMode>();
   const [googleReady, setGoogleReady] = useState(false);
+  const [operatorGoogleOnly, setOperatorGoogleOnly] = useState(false);
   const [mode, setMode] = useState<"phone" | "login" | "register">("phone");
   const [phone, setPhone] = useState("");
   const [challenge, setChallenge] = useState<PhoneChallenge | null>(null);
@@ -24,10 +25,11 @@ export default function SignIn() {
   useEffect(() => {
     if (offlineDemo) return;
     let active = true;
-    void api<{ phoneMode: PhoneMode; firebase?: { apiKey: string; authDomain: string; projectId: string; appId: string } | null }>("config").then(async (config) => {
+    void api<{ phoneMode: PhoneMode; operatorGoogleOnly?: boolean; firebase?: { apiKey: string; authDomain: string; projectId: string; appId: string } | null }>("config").then(async (config) => {
       if (active) {
         setPhoneMode(config.phoneMode);
         setGoogleReady(Boolean(config.firebase));
+        setOperatorGoogleOnly(Boolean(config.operatorGoogleOnly));
         if (config.phoneMode === "invite") setMode("login");
       }
       if (active && config.firebase) {
@@ -78,6 +80,7 @@ export default function SignIn() {
     setMode(next);
   }
   if (token) {
+    if (role === "operator" || operatorGoogleOnly) return <Redirect href="/admin" />;
     if (support === "1") return <Redirect href={{ pathname: "/support", params: { job, topic } }} />;
     if (next) {
       try {
@@ -88,6 +91,14 @@ export default function SignIn() {
     return <Redirect href={(role ?? sessionRole) === "worker" ? "/worker" : "/customer"} />;
   }
   const title = role === "worker" ? t("Worker sign-in", "काम करने वाले का साइन इन") : t("Customer sign-in", "ग्राहक साइन इन");
+  if (role === "operator" || operatorGoogleOnly) return <Page>
+    <Heading>{t("Operations sign-in", "संचालन साइन इन")}</Heading>
+    <Panel>
+      <Body>{t("Use the Google account authorised to approve workers.", "काम करने वालों की मंज़ूरी के लिए अधिकृत Google खाता इस्तेमाल करें।")}</Body>
+      <Feedback error={error || sessionError} />
+      <Button label={t("Continue with Google", "Google से जारी रखें")} disabled={busy || !operatorGoogleOnly || !googleReady} onPress={() => void googleSignIn()} />
+    </Panel>
+  </Page>;
   if (offlineDemo) return <Page><Heading>{title}</Heading>
     <Panel><Body>{t("Try this workspace with a sample account.", "नमूना खाते से आज़माएँ।")}</Body>
       <Feedback error={error} /><Button label={t("Sign in to preview", "प्रीव्यू में साइन इन करें")} disabled={busy} onPress={() => void submit()} /></Panel>

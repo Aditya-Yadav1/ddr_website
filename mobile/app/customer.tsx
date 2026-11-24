@@ -15,7 +15,9 @@ export default function Customer() {
       <LocationField compact />
       {checked && !ids.length && <Panel>
         <Heading size="small">{t("No workers available in this PIN code yet", "इस पिन कोड में अभी कोई काम करने वाला उपलब्ध नहीं है")}</Heading>
-        <Body>{t("Change the visit location to check another area.", "दूसरा इलाका देखने के लिए विज़िट की जगह बदलें।")}</Body>
+        <Body>{snapshot?.state.requireVerification
+          ? t("Workers appear here after their profile is approved and they list this PIN.", "प्रोफ़ाइल मंज़ूर होने और यह पिन जोड़ने के बाद काम करने वाले यहाँ दिखते हैं।")
+          : t("Change the visit location to check another area.", "दूसरा इलाका देखने के लिए विज़िट की जगह बदलें।")}</Body>
       </Panel>}
       {checked && ids.length > 0 && <><Heading>{t("What do you need help with?", "किस काम में मदद चाहिए?")}</Heading>
         <View style={styles.grid}>{snapshot?.state.catalog.services.map((service) =>
