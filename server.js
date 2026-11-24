@@ -14,6 +14,7 @@ const { readTicket, matchesTicket } = require("./mobile/shared/support-tickets.j
 const validateProfile = require("./mobile/shared/worker-profile.js");
 const demoWorkers = require("./mobile/shared/demo-workers.js");
 const pilot = require("./mobile/shared/pilot-pricing");
+const { initialLimits, ratesWithinLimit } = require("./mobile/shared/pricing-limits");
 const { isPinCode, demoPinCode, demoPinCodes } = require("./mobile/shared/pin-codes.js");
 const { readReview } = require("./mobile/shared/worker-reviews.js");
 const migrate = require("./db-migrations.js");
@@ -89,6 +90,14 @@ if (db.prepare("SELECT mode FROM auth_mode WHERE id=1").get().mode !== phoneMode
 }
 const updates = createBookingUpdates(db, twilio?.sendBooking, () => JSON.parse(getStore.get().body).requests);
 migrate(db);
+const readPricingLimit = db.prepare("SELECT service,unit,minimum,maximum,quoteMaximum FROM pricing_limits WHERE service=? AND unit=?");
+const setPricingLimit = db.prepare("INSERT INTO pricing_limits(service,unit,minimum,maximum,quoteMaximum) VALUES (?,?,?,?,?) ON CONFLICT(service,unit) DO UPDATE SET minimum=excluded.minimum,maximum=excluded.maximum,quoteMaximum=excluded.quoteMaximum");
+function pricingLimit(service, unit) {
+  return readPricingLimit.get(service, unit) || (config.production ? initialLimits.find((item) => item.service === service && item.unit === unit) : undefined);
+}
+function pricingLimits() {
+  return initialLimits.flatMap(({ service, unit }) => pricingLimit(service, unit) ?? []);
+}
 const firebaseIdentity = db.prepare("SELECT accounts.id, accounts.handle FROM firebase_identities JOIN accounts ON accounts.id=firebase_identities.owner WHERE uid=?");
 const linkFirebase = db.prepare("INSERT INTO firebase_identities(uid,owner,created) VALUES (?,?,?)");
 const upsertAccountProfile = db.prepare("INSERT INTO account_profiles(owner,full_name,email,photo,updated) VALUES (?,?,?,?,?) ON CONFLICT(owner) DO UPDATE SET full_name=CASE WHEN account_profiles.full_name='' THEN excluded.full_name ELSE account_profiles.full_name END,email=excluded.email,photo=excluded.photo,updated=excluded.updated");
@@ -265,7 +274,7 @@ function snapshot(market, state, query, native) {
     }),
     bookingUpdates: native ? recentUpdates.map((item) => ({ ...item, read: readNotifications.has(item.id) })) : recentUpdates,
     ...(!native && { bookingSms }),
-    ...(native && { phoneMode, requireVerification: config.requireVerification, onlinePaymentMode: onlinePayments.mode,
+    ...(native && { phoneMode, requireVerification: config.requireVerification, onlinePaymentMode: onlinePayments.mode, pricingLimits: pricingLimits(),
       ...(directory.some((person) => person.sample && market.coversPin(person, demoPinCode)) && { demoPinCode }), catalog: {
       areas: [...new Set([...market.areas, ...directory.flatMap((profile) => profile.areas)])],
       services: market.services.map(({ id, name, tasks, note }) => ({ id, name, tasks, note })),
@@ -278,6 +287,7 @@ function snapshot(market, state, query, native) {
 
 function bookable(account, profile) {
   return Array.isArray(profile?.pinCodes) && profile.pinCodes.some(isPinCode) && (!profile.sample || config.previewWorkers)
+    && ratesWithinLimit(profile, pricingLimit(profile.service, profile.unit))
     && trust.eligible(profile, config.requireVerification) && !trust.blocked(account?.id, profile.id);
 }
 
@@ -505,7 +515,14 @@ function mutate(action, market, state, input, native = false, requestFingerprint
     market.save({ ...state, profile: { ...profile, ...patch } });
     return {};
   };
-  if (action === "profile") return saveProfile(validateProfile(market, input, profile, account, native, failure));
+  if (action === "profile") {
+    const next = validateProfile(market, input, profile, account, native, failure);
+    const limit = pricingLimit(next.service, next.unit);
+    if (!ratesWithinLimit(next, limit)) {
+      throw failure(400, "Set your Everyday and Plus rates within ₹" + limit.minimum + "–₹" + limit.maximum + ".", "PRICE_LIMIT");
+    }
+    return saveProfile(next);
+  }
   if (["hours", "immediate", "published", "block", "remove-block"].includes(action)) {
     if (!profile) throw failure(400, "Create a worker profile first.");
     if (action === "hours") {
@@ -567,7 +584,14 @@ function mutate(action, market, state, input, native = false, requestFingerprint
       }
       details = { customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim() };
     }
+    const rate = pilot.rateFor(worker.service, scope, pinCode);
+    const offer = pilot.offerFor(rate, tier ?? "everyday");
+    const priceLimit = pricingLimit(worker.service, offer?.unit ?? worker.unit);
+    if (priceLimit && (!brief || (input.expectedQuoteMaximum !== undefined && input.expectedQuoteMaximum !== priceLimit.quoteMaximum))) {
+      throw failure(409, "Review the current price and booking limit before sending.", "OFFER_CHANGED");
+    }
     const result = market.request({ intent, proId, scope, area: area.trim() || pinCode, pinCode, appointment, timing, contact, requestFingerprint,
+      priceLimit,
       ...(usesOffer && { tier, expectedPrice, expectedMaxPrice: input.expectedMaxPrice, expectedOffer: input.expectedOffer, expectedUnit, expectedIncludes, expectedIncludesHi, details, brief, hours }),
     });
     if (result.job && (config.production || input.safetyVersion === 1) && !result.job.safetyVersion) {
@@ -735,7 +759,7 @@ const staticFiles = new Set(["index.html", "appearance.js", "marketplace.js", "m
   "tracking.js", "contact.js", "live-preview.js", "script.js", "styles.css"]);
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".jpg": "image/jpeg" };
 const appMime = { ...mime, ".tsv": "text/tab-separated-values; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
-const nativeActions = new Set(["admin-overview", "admin-support-resolve", "admin-worker-review", "admin-worker-suspend", "admin-report-resolve", "discover", "state", "slots", "coverage", "locations", "worker-details", "register", "login", "google-sign-in", "google-link", "phone-link", "logout", "phone-start", "phone-verify", "config",
+const nativeActions = new Set(["admin-overview", "admin-support-resolve", "admin-worker-review", "admin-worker-suspend", "admin-report-resolve", "admin-price-limit", "discover", "state", "slots", "coverage", "locations", "worker-details", "register", "login", "google-sign-in", "google-link", "phone-link", "logout", "phone-start", "phone-verify", "config",
   "save-address", "remove-address", "account-profile", "account-deletion-request", "notification-read", "review", "profile", "hours", "published", "immediate", "block", "remove-block", "request", "transition", "message", "estimate",
   "availability", "save-worker", "remove-worker", "block-worker", "unblock-worker", "report-worker", "health", "verification-request", "arrival-confirm", "safety-report",
   "checkout-start", "checkout-check", "checkout-demo", "checkout-cancel", "support-create", "demo-worker-step", "visit-location", ...agreements.commands.keys()]);
@@ -786,6 +810,7 @@ function nativeMutation(action, market, state, input) {
   if (action === "request" && input.pinCode !== undefined) values.push({ pinCode: input.pinCode });
   if (action === "request" && input.expectedMaxPrice !== undefined) values.push({ expectedMaxPrice: input.expectedMaxPrice });
   if (action === "request" && input.expectedOffer !== undefined) values.push({ expectedOffer: input.expectedOffer });
+  if (action === "request" && input.expectedQuoteMaximum !== undefined) values.push({ expectedQuoteMaximum: input.expectedQuoteMaximum });
   if (action === "quote-send" && input.pilotAction !== undefined) values.push({ pilotAction: input.pilotAction });
   if (action === "transition" && input.reason !== undefined) values.push(input.reason);
   const fingerprint = sha256(JSON.stringify([action, values]));
@@ -862,7 +887,8 @@ async function handleApi(req, res, url, native) {
     const admin = requireAdmin(readAccount());
     const store = JSON.parse(getStore.get().body);
     const profiles = store.profiles.map((profile) => ({ id: profile.id, name: profile.name, service: profile.service,
-      published: profile.published, trust: trust.summary(profile) }));
+      published: profile.published, trust: trust.summary(profile),
+      pricingBlocked: !ratesWithinLimit(profile, pricingLimit(profile.service, profile.unit)) }));
     const statuses = Object.groupBy(store.requests, (job) => job.status);
     const pilotBookings = store.requests.filter((job) => job.pilot);
     const pilotCompleted = pilotBookings.filter((job) => job.status === "completed");
@@ -876,6 +902,7 @@ async function handleApi(req, res, url, native) {
         plusFulfilled: pilotCompleted.filter((job) => job.tier === "plus" && job.bill?.quantity === 2).length,
         plusCompleted: pilotCompleted.filter((job) => job.tier === "plus").length, shadowFees },
       professionals: profiles,
+      pricingLimits: initialLimits.map((item) => pricingLimit(item.service, item.unit) ?? item),
       verification: db.prepare("SELECT worker,requested FROM verification_requests ORDER BY requested DESC LIMIT 100").all(),
       support: db.prepare("SELECT id,owner,job,category,message,created FROM support_tickets WHERE status='open' ORDER BY created DESC LIMIT 100").all(),
       reports: db.prepare("SELECT id,worker,job,message,created FROM safety_reports WHERE status='open' ORDER BY created DESC LIMIT 100").all(),
@@ -995,7 +1022,17 @@ async function handleApi(req, res, url, native) {
     const admin = requireAdmin(readAccount());
     const result = writeTransaction(() => {
       const reason = typeof input.reason === "string" ? input.reason.trim() : "";
-      if (action === "admin-support-resolve") {
+      if (action === "admin-price-limit") {
+        const { service, unit, minimum, maximum, quoteMaximum } = input;
+        const valid = [minimum, maximum, quoteMaximum].every((value) => Number.isSafeInteger(value) && value >= 1 && value <= 200_000);
+        if (!initialLimits.some((item) => item.service === service && item.unit === unit) || !valid
+          || minimum >= maximum || quoteMaximum < maximum * (unit === "hourly" ? 2 : 1) || reason.length < 3 || reason.length > 220) {
+          throw failure(400, "Check the price range, booking cap and change reason.");
+        }
+        setPricingLimit.run(service, unit, minimum, maximum, quoteMaximum);
+        recordAdmin.run(crypto.randomUUID(), admin.id, "price-limit", service + "/" + unit,
+          JSON.stringify({ minimum, maximum, quoteMaximum, reason }), Date.now());
+      } else if (action === "admin-support-resolve") {
         const reply = typeof input.response === "string" ? input.response.trim() : "";
         if (!input.id || !input.owner || reply.length < 3 || reply.length > 1000) throw failure(400, "Provide a support reply of 3 to 1000 characters.");
         const changed = db.prepare("UPDATE support_tickets SET status='resolved',response=?,responder=? WHERE id=? AND owner=? AND status='open'")

@@ -85,12 +85,16 @@ function change(action, market, state, job, input, failure) {
     if (offer) validate(minutes >= (choice === "add" ? 60 : offer.minutes), "Allow enough time for the rate-card work.");
     const subtotal = items.reduce((sum, item) => sum + item.amountPaise, 0);
     validate(creditPaise <= subtotal, "The visit credit cannot exceed the repair charge.");
+    const totalPaise = job.basePaise + subtotal - creditPaise + adjustmentPaise;
+    if (job.quoteMaximumPaise && totalPaise > job.quoteMaximumPaise) {
+      throw failure(400, "The full quote must be within the booking limit of ₹" + job.quoteMaximumPaise / 100 + ".", "PRICE_LIMIT");
+    }
     const previous = quotes.find(pending);
     if (previous) previous.status = "superseded";
     job.quotes = [...quotes, { version: input.version + 1, items, creditPaise, minutes, materials: input.materials,
       ...(offer && { adjustmentPaise, labourPaise: job.basePaise + labourChange[choice] - creditPaise,
         quantity: choice === "reduce" ? 1 : choice === "add" ? 2 : offer.quantity }),
-      exclusions: input.exclusions.trim(), totalPaise: job.basePaise + subtotal - creditPaise + adjustmentPaise, status: "sent", at: now }];
+      exclusions: input.exclusions.trim(), totalPaise, status: "sent", at: now }];
     return save();
   }
   if (action === "quote-respond") {

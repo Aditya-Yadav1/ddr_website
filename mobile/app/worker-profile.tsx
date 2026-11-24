@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
 import { upperEstimate } from "../shared/price-range";
+import { ratesWithinLimit } from "../shared/pricing-limits";
 import { tasks } from "../src/catalog";
 import { isPinCode } from "../shared/pin-codes";
 import { normalizeWorkPhone } from "../shared/worker-profile";
@@ -85,7 +86,12 @@ export default function WorkerProfile() {
     });
     if (stored && !profile) router.replace("/worker");
   }
-  const profileValid = Boolean(name.trim() && bio.trim() && service && validPins && normalizeWorkPhone(workPhone) !== null
+  const priceLimit = snapshot?.state.pricingLimits?.find((item) => item.service === service && item.unit === unit);
+  const ratesAllowed = ratesWithinLimit({
+    price: Number(price), maxPrice: Number(maxPrice),
+    plus: plus ? { price: Number(plusPrice), maxPrice: Number(plusMax) } : null,
+  }, priceLimit);
+  const profileValid = Boolean(ratesAllowed && name.trim() && bio.trim() && service && validPins && normalizeWorkPhone(workPhone) !== null
     && areas.length <= 20 && areas.every((area) => area.length >= 2 && /[\p{L}]/u.test(area)) && years !== "" && Number(years) <= 70
     && Number(maxPrice) > Number(price) && Number(maxPrice) <= 200000 && Number(price) >= 1 && Number(price) <= 100000 && (!plus || (Number(plusPrice) > Number(price) && Number(plusPrice) <= 100000 && Number(plusMax) > Number(plusPrice) && Number(plusMax) <= 200000 && includes.trim())));
   const clocks = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
@@ -154,6 +160,9 @@ export default function WorkerProfile() {
     </Panel>}
     <Panel tone="info">
       <Heading size="small">{t("Everyday rate for other jobs", "अन्य कामों की एवरीडे दर")}</Heading>
+      {!!priceLimit && <Body strong>{t("ASAAN rate limits for Everyday and Plus", "एवरीडे और प्लस के लिए आसान की दर सीमा")}
+        {" · "}{copy.money(priceLimit.minimum)}–{copy.money(priceLimit.maximum)}</Body>}
+      {priceLimit && !ratesAllowed && <Body>{t("Adjust both rate ranges to publish these services.", "इन सेवाओं को दिखाने के लिए दोनों दर सीमाएँ ठीक करें।")}</Body>}
       <Body>{t("Set a starting rate for your regular service.", "अपनी सामान्य सेवा की शुरुआती दर तय करें।")}</Body>
       <Row>
         <Button compact secondary selected={unit === "visit"} label={t("Diagnostic visit", "जाँच की विज़िट")} onPress={() => setUnit("visit")} />

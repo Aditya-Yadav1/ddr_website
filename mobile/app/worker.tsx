@@ -4,6 +4,7 @@ import { VerificationRequest } from "../src/worker-safety";
 import { useCopy } from "../src/language";
 import { useSession } from "../src/session";
 import { paymentBalance } from "../src/payment-controls";
+import { ratesWithinLimit } from "../shared/pricing-limits";
 import { activeStatuses, Body, BookingCard, Button, Feedback, Heading, MainNav, Page, Panel, Row, Section, Tag } from "../src/ui";
 
 export default function WorkerJobs() {
@@ -23,6 +24,8 @@ export default function WorkerJobs() {
   const billed = history.reduce((sum, job) => sum + (job.bill?.totalPaise ?? 0), 0);
   const received = history.reduce((sum, job) => sum + paymentBalance(job).confirmed, 0);
   const missingPins = !profile?.pinCodes?.length;
+  const priceLimit = snapshot.state.pricingLimits?.find((item) => item.service === profile?.service && item.unit === profile?.unit);
+  const ratesNeedUpdate = !!profile && !ratesWithinLimit(profile, priceLimit);
   const verificationNeeded = snapshot.state.requireVerification && !profile?.trust?.eligible;
   const awaitingReview = verificationNeeded && profile?.trust?.requested &&
     Object.values(profile.trust.checks).every((check) => ["not_checked", "verified"].includes(check.status));
@@ -38,15 +41,17 @@ export default function WorkerJobs() {
     <Panel>
       {profile ? <>
         <Row><Heading size="small">{profile.name}</Heading>
-          <Tag tone={profile.trust?.suspended ? "danger" : missingPins || verificationNeeded ? "warning" : profile.published ? "success" : "neutral"}>
+          <Tag tone={profile.trust?.suspended ? "danger" : missingPins || ratesNeedUpdate || verificationNeeded ? "warning" : profile.published ? "success" : "neutral"}>
             {profile.trust?.suspended ? t("Suspended", "निलंबित")
               : missingPins ? t("PIN codes required", "पिन कोड ज़रूरी")
+              : ratesNeedUpdate ? t("Update your rates", "अपनी दरें बदलें")
               : awaitingReview ? t("Awaiting verification", "जाँच की प्रतीक्षा")
               : verificationNeeded ? t("Verification required", "जाँच ज़रूरी")
               : profile.published ? t("Visible to customers", "ग्राहकों को दिख रही है") : t("Paused", "रुकी हुई")}
           </Tag></Row>
         <Body>{profile.trust?.suspended ? t("Your profile is hidden from customer searches while it is suspended.", "निलंबन के दौरान प्रोफ़ाइल ग्राहक खोज में नहीं दिखती।")
           : missingPins ? t("Add your service PIN codes to receive new bookings.", "नई बुकिंग पाने के लिए सेवा के पिन कोड जोड़ें।")
+          : ratesNeedUpdate ? t("Your listing will be available for new bookings after you save rates within the ASAAN limits.", "आसान की सीमा के भीतर दरें सहेजने के बाद नई बुकिंग मिल सकेंगी।")
           : verificationNeeded ? t("Customers can find your profile after ASAAN reviews and approves your checks.", "आसान की जाँच और मंज़ूरी के बाद ग्राहक आपकी प्रोफ़ाइल देख सकेंगे।")
           : profile.published ? t("Customers can find your profile in the PIN codes you serve.", "आपके सेवा वाले पिन कोड में ग्राहक आपकी प्रोफ़ाइल देख सकते हैं।")
           : t("You can manage existing jobs while your profile is paused.", "प्रोफ़ाइल रुकी होने पर भी आप मौजूदा काम संभाल सकते हैं।")}</Body>

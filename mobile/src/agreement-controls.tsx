@@ -64,6 +64,7 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
   const quoteTotal = base + labourChange + amounts.reduce((sum, item) => sum + (item.amountPaise || 0), 0) - (creditPaise || 0);
   const quoteValid = amounts.every((item) => item.label && item.amountPaise > 0 && item.amountPaise <= 10_000_000)
     && (amounts.length > 0 || (offer && pilotAction !== "materials"))
+    && (!booking.quoteMaximumPaise || quoteTotal <= booking.quoteMaximumPaise)
     && Number(minutes) >= (pilotAction === "add" ? 60 : offer?.minutes ?? 15) && Number(minutes) <= 720
     && creditPaise >= 0 && creditPaise <= base && (offer ? quoteTotal > 0 : quoteTotal >= base);
   function updateItem(index: number, patch: Partial<typeof items[number]>) {
@@ -72,6 +73,8 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
 
   return <Panel>
     <Heading size="small">{t("Job agreement", "काम की सहमति")}</Heading>
+    {!!booking.quoteMaximumPaise && <Body strong>{t("Maximum quote including materials", "सामान सहित अधिकतम कोटेशन")}
+      {" · "}{money(booking.quoteMaximumPaise / 100)}</Body>}
     <Body>{brief.problem}</Body>
     <Body>{labels[brief.materials]}</Body>
     {brief.materials === "customer" && <Body small>{{
@@ -121,6 +124,8 @@ export function AgreementControls({ booking, role, locked, send }: BookingContro
       {!offer && base > 0 && booking.unit === "visit" && <Field label={t("Credit towards repair (₹)", "मरम्मत पर जाँच शुल्क की छूट (₹)")}
         value={credit} maxLength={10} keyboardType="decimal-pad" onChangeText={setCredit} />}
       <Body strong>{t("Quote total", "कोटेशन का कुल")} · {money(quoteTotal / 100)}</Body>
+      {!!booking.quoteMaximumPaise && quoteTotal > booking.quoteMaximumPaise &&
+        <Body>{t("This quote exceeds the booking limit.", "यह कोटेशन बुकिंग सीमा से अधिक है।")}</Body>}
       <Row>
         <Button label={t("Send quote for approval", "मंज़ूरी के लिए कोटेशन भेजें")} disabled={locked || !quoteValid} onPress={async () => {
           if (await send("quote-send", { version: latest?.version ?? 0, items: amounts, materials, minutes: Number(minutes), exclusions, creditPaise, ...(offer && { pilotAction }) })) {

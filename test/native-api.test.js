@@ -86,11 +86,11 @@ async function setup(t, overrides = {}) {
     assert.equal(result.status, 200, result.body.error);
     return { token: result.body.session.token, id: result.body.state.account.id, result };
   }
-  async function registerWorker() {
+  async function registerWorker(rates = {}) {
     const worker = await register("test-worker");
     const result = await api("profile", { token: worker.token, body: {
       name: "Test worker", bio: "Local test profile", service: "plumbing", unit: "visit",
-      years: 2, price: 500, areas: ["Saket"], pinCodes: ["110017"],
+      years: 2, price: 500, areas: ["Saket"], pinCodes: ["110017"], ...rates,
     } });
     assert.equal(result.status, 200, result.body.error);
     return worker;
@@ -152,7 +152,7 @@ test("invited accounts share a booking only after a separate worker passes opera
   });
   assert.equal((await api("discover")).status, 401);
   assert.equal((await api("register", { body: { handle: "outside", password, invite: "incorrect" } })).status, 403);
-  const worker = await registerWorker();
+  const worker = await registerWorker({ price: 199, maxPrice: 300 });
   const customer = await register("test-customer");
   const operator = await register("test-operator");
   assert.equal((await api("config")).body.firebase, null);
@@ -171,21 +171,50 @@ test("invited accounts share a booking only after a separate worker passes opera
     db.prepare("INSERT INTO firebase_identities(uid,owner,created) VALUES (?,?,?)").run("isolated-google-fixture", operator.id, now);
   });
   assert.equal((await api("admin-overview", { token: customer.token })).status, 403);
+  const pricing = { service: "plumbing", unit: "visit", minimum: 100, maximum: 350, quoteMaximum: 800, reason: "Routine visits" };
+  assert.equal((await api("admin-price-limit", { token: customer.token, body: pricing })).status, 403);
+  assert.equal((await api("admin-price-limit", { token: operator.token, body: pricing })).status, 200);
   for (const kind of ["identity", "background", "skills"]) {
     const review = await api("admin-worker-review", { token: operator.token, body: { worker: worker.id, kind,
       status: "verified", reference: "isolated test evidence", expiresAt: Date.now() + 86400000 } });
     assert.equal(review.status, 200, review.body.error);
   }
   assert.deepEqual((await api("coverage?pinCode=110017", { token: customer.token })).body.ids, [worker.id]);
+  const tooExpensive = await api("profile", { token: worker.token, body: {
+    name: "Test worker", bio: "Local test profile", service: "plumbing", unit: "visit",
+    years: 2, price: 500, maxPrice: 600, areas: ["Saket"], pinCodes: ["110017"],
+  } });
+  assert.equal(tooExpensive.body.code, "PRICE_LIMIT");
   const appointment = new Date(Date.now() + 2 * 86400000 + 19800000).toISOString().slice(0, 10) + "T10:00";
-  const booked = await api("request", { token: customer.token, body: booking(worker.id, appointment) });
+  const requestDetails = {
+    ...booking(worker.id, appointment), tier: "everyday", expectedPrice: 199, expectedMaxPrice: 300, expectedUnit: "visit",
+    expectedIncludes: "", expectedIncludesHi: "", expectedQuoteMaximum: 800, customerName: "Test customer", address: "1 Example address",
+    brief: { problem: "The tap drips", materials: "inspect", readiness: "unknown" }, hours: 2,
+  };
+  const stale = await api("request", { token: customer.token, body: { ...requestDetails, expectedQuoteMaximum: 3500 } });
+  assert.equal(stale.body.code, "OFFER_CHANGED");
+  const booked = await api("request", { token: customer.token, body: requestDetails });
   assert.equal(booked.status, 200, booked.body.error);
+  assert.equal((await api("admin-price-limit", { token: operator.token, body: { ...pricing, maximum: 250, quoteMaximum: 1200 } })).status, 200);
+  assert.deepEqual((await api("coverage?pinCode=110017", { token: customer.token })).body.ids, []);
   await stop();
   await start();
   const loggedIn = await api("login", { body: { handle: "test-worker", password } });
   assert.equal(loggedIn.status, 200, loggedIn.body.error);
   assert.equal(loggedIn.body.state.profile.trust.phoneVerified, false);
   assert.equal(loggedIn.body.state.requests[0].id, booked.body.jobId);
+  assert.equal(loggedIn.body.state.requests[0].quoteMaximumPaise, 80_000);
+  const job = booked.body.jobId;
+  for (const change of ["accept", "arrive"]) {
+    const moved = await api("transition", { token: worker.token, body: { operationId: randomUUID(), role: "pro", job, change } });
+    assert.equal(moved.status, 200, moved.body.error);
+  }
+  const quote = { role: "pro", version: 0, job, minutes: 60, materials: "none", exclusions: "", creditPaise: 0 };
+  const sendQuote = (amountPaise) => api("quote-send", { token: worker.token, body: {
+    ...quote, operationId: randomUUID(), items: [{ label: "Tap repair", amountPaise }],
+  } });
+  assert.equal((await sendQuote(80_001)).body.code, "PRICE_LIMIT");
+  assert.equal((await sendQuote(80_000)).status, 200);
 });
 
 test("live location belongs to booking participants only and stops at arrival", async (t) => {

@@ -57,6 +57,13 @@ module.exports = function migrate(db) {
         "INSERT INTO schema_migrations VALUES (7);"
       );
     }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version=8").get()) {
+      db.exec(
+        "CREATE TABLE IF NOT EXISTS pricing_limits (service TEXT NOT NULL, unit TEXT NOT NULL, minimum INTEGER NOT NULL," +
+        "maximum INTEGER NOT NULL, quoteMaximum INTEGER NOT NULL, PRIMARY KEY(service,unit));" +
+        "INSERT INTO schema_migrations VALUES (8);"
+      );
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

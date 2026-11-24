@@ -20,7 +20,7 @@ import { isPinCode } from "../../shared/pin-codes";
 type Review = {
   safetyVersion: number;
   intent: string; proId: string; scope: string; area: string; pinCode: string; appointment: string; timing: "" | "now"; contact: string;
-  tier: Tier; expectedPrice: number; expectedMaxPrice: number; expectedUnit: Unit; expectedIncludes: string; expectedIncludesHi: string; expectedOffer?: string;
+  tier: Tier; expectedPrice: number; expectedMaxPrice: number; expectedUnit: Unit; expectedIncludes: string; expectedIncludesHi: string; expectedOffer?: string; expectedQuoteMaximum?: number;
   customerName: string; address: string; landmark: string; notes: string; brief: Brief; hours: number;
 };
 
@@ -110,6 +110,8 @@ export default function RequestAppointment() {
     <Button label={t("Find matching workers", "उपलब्ध काम करने वाले खोजें")} onPress={() => router.dismissTo("/")} />
   </Page>;
   const plus = tier === "plus" ? (rate ? offer : profile?.plus) : null;
+  const limit = snapshot?.state.pricingLimits?.find((item) => item.service === profile?.service && item.unit === unit);
+  const maxEstimate = profile ? (offer?.price ?? upperEstimate(tier === "plus" ? profile.plus ?? profile : profile)) : 0;
   const availability = slotResult?.key === slotKey ? slotResult : null;
   const validSlot = availability?.slots.includes(appointment) ?? false;
   let appointmentIssue = "";
@@ -125,6 +127,8 @@ export default function RequestAppointment() {
     !rate && unit !== "visit" && brief.materials === "inspect" && t("Choose who will bring the materials.", "चुनें कि सामान कौन लाएगा।"),
     offer && !offer.repairPrice && !partsReady && t("Confirm you have the compatible parts ready.", "पुष्टि करें कि सही पुर्ज़े तैयार हैं।"),
     tier === "plus" && !plus && t("Choose an available service option.", "उपलब्ध सेवा का विकल्प चुनें।"),
+    limit && maxEstimate * (unit === "hourly" ? agreedHours : 1) > limit.quoteMaximum
+      && t("This option exceeds the booking limit. Choose fewer hours or another offer.", "यह विकल्प बुकिंग सीमा से अधिक है। कम घंटे या दूसरा विकल्प चुनें।"),
     appointmentIssue,
     !customerName.trim() && t("Enter your name.", "अपना नाम लिखें।"),
     address.trim().length < 8 && t("Enter a visit address of at least 8 characters.", "विज़िट का पता कम से कम 8 अक्षरों में लिखें।"),
@@ -132,11 +136,11 @@ export default function RequestAppointment() {
   const valid = reviewIssues.length === 0;
   const reviewedPlus = review?.tier === "plus" ? profile?.plus : null;
   const currentReviewRate = rateFor(profile?.service, review?.scope, review?.pinCode ?? "");
-  const offerChanged = Boolean(review && (review.expectedOffer
+  const offerChanged = Boolean(review && (review.expectedQuoteMaximum !== limit?.quoteMaximum || (review.expectedOffer
     ? !currentReviewRate || !eligible(profile, currentReviewRate) || currentReviewRate.id !== review.expectedOffer || pinCode !== review.pinCode
     : currentReviewRate || !profile || (review.tier === "plus" && !reviewedPlus)
     || review.expectedMaxPrice !== upperEstimate(reviewedPlus ?? profile) || review.expectedPrice !== (reviewedPlus?.price ?? profile.price) || review.expectedUnit !== profile.unit
-    || review.expectedIncludes !== (reviewedPlus?.includes || "") || review.expectedIncludesHi !== (reviewedPlus?.includesHi || "")));
+    || review.expectedIncludes !== (reviewedPlus?.includes || "") || review.expectedIncludesHi !== (reviewedPlus?.includesHi || ""))));
   function editReview() {
     setReview(null);
     setSlotRefresh((value) => value + 1);
@@ -148,8 +152,9 @@ export default function RequestAppointment() {
     setReview({
       safetyVersion: 1, intent: operationId(), proId: profile.id, scope, area: area.trim(), pinCode, appointment, timing: "",
       contact: "In-app message", tier, expectedPrice: offer?.price ?? plus?.price ?? profile.price,
-      expectedMaxPrice: offer?.price ?? upperEstimate(tier === "plus" ? profile.plus ?? profile : profile), expectedUnit: unit,
+      expectedMaxPrice: maxEstimate, expectedUnit: unit,
       ...(offer && { expectedOffer: offer.id }),
+      ...(limit && { expectedQuoteMaximum: limit.quoteMaximum }),
       expectedIncludes: plus?.includes || "", expectedIncludesHi: plus?.includesHi || "",
       customerName: customerName.trim(), address: address.trim(), landmark: landmark.trim(), notes: notes.trim(),
       brief: { ...brief, problem: brief.problem.trim(), ...(offer && {
@@ -180,6 +185,8 @@ export default function RequestAppointment() {
         {" · "}{copy.range(review.expectedPrice, review.expectedMaxPrice, review.expectedUnit === "hourly" ? review.hours : 1)}</Body>
       {review.expectedUnit === "hourly" && <Body small>{review.hours} {t("agreed hours", "तय घंटे")}</Body>}
       </>}
+      {!!review.expectedQuoteMaximum && <Body strong>{t("Maximum quote including materials", "सामान सहित अधिकतम कोटेशन")}
+        {" · "}{copy.money(review.expectedQuoteMaximum)}</Body>}
       <Body small>{t("Pay the worker directly at the end of the visit.", "विज़िट के अंत में काम करने वाले को सीधे भुगतान करें।")}</Body>
     </Panel>
     <Panel>

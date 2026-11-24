@@ -1,4 +1,5 @@
 const pilot = require("./pilot-pricing");
+const { upperEstimate } = require("./price-range");
 
 function createMarketplace(adapter) {
   const city = "Delhi";
@@ -249,7 +250,7 @@ function createMarketplace(adapter) {
   }
 
   function request({ intent, proId, scope, area, pinCode, appointment = "", timing = "", contact,
-    tier = "everyday", expectedPrice, expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, expectedOffer, requestFingerprint, details, brief, hours }) {
+    tier = "everyday", expectedPrice, expectedMaxPrice, expectedUnit, expectedIncludes, expectedIncludesHi, expectedOffer, requestFingerprint, details, brief, hours, priceLimit }) {
     const state = current();
     const existing = state.requests.find((job) => job.intent === intent
       && (!state.connected || job.customerId === state.account.id)
@@ -275,11 +276,14 @@ function createMarketplace(adapter) {
     const price = offer?.price ?? plus?.price ?? person.price;
     const unit = offer?.unit ?? person.unit;
     if ((rate && (!offer || !brief || !details || !appointment || expectedOffer !== offer.id || expectedPrice !== price || expectedMaxPrice !== price))
-      || (!rate && (expectedOffer !== undefined || (expectedMaxPrice !== undefined && (!brief || expectedMaxPrice !== require("./price-range").upperEstimate(plus ?? person)))))
+      || (!rate && (expectedOffer !== undefined || (expectedMaxPrice !== undefined && (!brief || expectedMaxPrice !== upperEstimate(plus ?? person)))))
       || (tier === "plus" && !plus) || (expectedPrice !== undefined
       && (expectedPrice !== price || expectedUnit !== unit
         || expectedIncludes !== (plus?.includes || "") || expectedIncludesHi !== (plus?.includesHi || "")))) {
       return { error: "This option changed. Review the current rate and inclusions before sending.", code: "OFFER_CHANGED" };
+    }
+    if (priceLimit && (offer ? offer.price : upperEstimate(plus ?? person) * (unit === "hourly" ? hours : 1)) > priceLimit.quoteMaximum) {
+      return { error: "Choose an option within the maximum booking total.", code: "PRICE_LIMIT" };
     }
     const job = {
       id: id(), intent, proId, scope, area, appointment, timing: !appointment && timing === "now" ? "now" : "", contact, service: trade.id,
@@ -293,6 +297,7 @@ function createMarketplace(adapter) {
         basePaise: !offer && expectedMaxPrice !== undefined ? 0 : price * 100 * (unit === "hourly" ? hours : 1),
         ...(unit === "hourly" && { agreedHours: hours, duration: hours * 60 }) }),
       ...(offer && { pilot: offer, duration: offer.minutes }),
+      ...(priceLimit && { quoteMaximumPaise: priceLimit.quoteMaximum * 100 }),
       createdAt: now, updatedAt: now, deadline: now + responseWindow, messages: [],
     };
     if (state.connected) {

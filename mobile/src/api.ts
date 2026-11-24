@@ -9,6 +9,7 @@ export type WorkerTrust = {
 export type Account = { id: string; handle: string; name?: string; email?: string; photo?: string; googleLinked?: boolean; phone?: string };
 export type Hours = { days: number[]; start: string; end: string; buffer: number };
 export type Unit = "visit" | "hourly" | "fixed";
+export type PricingLimit = { service: string; unit: Unit; minimum: number; maximum: number; quoteMaximum: number };
 export type Tier = "everyday" | "plus";
 export type Plus = { price: number; maxPrice?: number; includes: string; includesHi?: string };
 export type PilotRate = {
@@ -99,6 +100,7 @@ export type Booking = {
   agreementVersion?: 1;
   brief?: Brief;
   basePaise?: number;
+  quoteMaximumPaise?: number;
   pilot?: PilotOffer;
   agreedHours?: number;
   activeQuote?: number;
@@ -124,6 +126,7 @@ export type PhoneChallenge = { challenge: string; expiresAt: number; previewCode
 export type Snapshot = {
   state: {
     phoneMode?: PhoneMode;
+    pricingLimits?: PricingLimit[];
     requireVerification?: boolean;
     deletionRequested?: boolean;
     isAdmin?: boolean;

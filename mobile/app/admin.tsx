@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type WorkerTrust } from "../src/api";
+import { api, type PricingLimit, type WorkerTrust } from "../src/api";
 import { useCopy } from "../src/language";
 import { useSession } from "../src/session";
 import { Body, Button, Feedback, Field, Heading, Page, Panel, Row, Section, Tag } from "../src/ui";
@@ -8,7 +8,8 @@ const checkKinds = ["identity", "background", "skills"] as const;
 type AdminOverview = {
   metrics: { accounts: number; professionals: number; openSupport: number; activeBookings: number; completedBookings: number };
   pilotPricing?: { bookings: number; completed: number; plusFulfilled: number; plusCompleted: number; shadowFees: number };
-  professionals: { id: string; name: string; service: string; published: boolean; trust: WorkerTrust }[];
+  pricingLimits?: PricingLimit[];
+  professionals: { id: string; name: string; service: string; published: boolean; pricingBlocked?: boolean; trust: WorkerTrust }[];
   verification: { worker: string; requested: number }[];
   support: { id: string; owner: string; job: string; category: string; message: string; created: number }[];
   reports: { id: string; worker: string; job: string; message: string; created: number }[];
@@ -27,6 +28,8 @@ export default function Admin() {
   const [reference, setReference] = useState("");
   const [expiry, setExpiry] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [showPricing, setShowPricing] = useState(false);
+  const [pricingDraft, setPricingDraft] = useState({ minimum: "", maximum: "", quoteMaximum: "" });
   useEffect(() => {
     if (!token || !snapshot?.state.isAdmin) return;
     let active = true;
@@ -57,6 +60,7 @@ export default function Admin() {
     revoked: t("Revoked", "रद्द"),
     not_checked: t("Pending", "लंबित"),
   };
+  const unitNames = { visit: t("Diagnostic visit", "जाँच की विज़िट"), hourly: t("Per hour", "प्रति घंटा"), fixed: t("Package", "पैकेज") };
   return <Page><Section><Heading>{t("Marketplace operations", "बाज़ार संचालन")}</Heading>
     <Body>{t("Live records from the marketplace. Review each action before applying it.", "बाज़ार के वास्तविक रिकॉर्ड। हर कार्रवाई पहले जाँचें।")}</Body></Section>
     <Feedback error={error} />{!data && <Button secondary label={t("Load operations", "संचालन जानकारी लोड करें")} onPress={() => setRefresh((value) => value + 1)} />}
@@ -68,6 +72,38 @@ export default function Admin() {
         <Body>{data.pilotPricing.plusFulfilled} / {data.pilotPricing.plusCompleted} {t("completed Plus bookings delivered both fittings", "पूरी प्लस बुकिंग में दोनों नल लगे")}</Body>
         <Body strong>{t("Simulated fees on confirmed labour", "पक्के श्रम भुगतान पर परीक्षण शुल्क")} · {money(data.pilotPricing.shadowFees / 100)}</Body>
       </Panel>}
+      <Panel>
+        <Heading size="small">{t("Pricing limits", "मूल्य सीमाएँ")}</Heading>
+        <Body>{t("Set the range workers can advertise and the maximum quote per booking, including materials. New limits apply to new requests.", "काम करने वालों की दर सीमा और सामान सहित हर बुकिंग की अधिकतम कीमत तय करें। नई सीमाएँ नए अनुरोधों पर लागू होंगी।")}</Body>
+        <Button secondary label={showPricing ? t("Hide pricing limits", "मूल्य सीमाएँ छिपाएँ") : t("Manage pricing limits", "मूल्य सीमाएँ तय करें")}
+          onPress={() => setShowPricing(!showPricing)} />
+        {showPricing && data.pricingLimits?.map((limit) => {
+          const key = "price:" + limit.service + ":" + limit.unit;
+          return <Section key={key}>
+            <Heading size="small">{service(limit.service, limit.service)} · {unitNames[limit.unit]}</Heading>
+            <Body>{t("Advertised range", "दिखाई जाने वाली दर")} · {money(limit.minimum)}–{money(limit.maximum)}</Body>
+            <Body>{t("Maximum booking total", "बुकिंग की अधिकतम कीमत")} · {money(limit.quoteMaximum)}</Body>
+            {confirm === key ? <>
+              <Field label={t("Minimum advertised rate (₹)", "न्यूनतम दर (₹)")} value={pricingDraft.minimum} keyboardType="number-pad" maxLength={6}
+                onChangeText={(minimum) => setPricingDraft({ ...pricingDraft, minimum: minimum.replace(/\D/g, "") })} />
+              <Field label={t("Maximum advertised rate (₹)", "अधिकतम दर (₹)")} value={pricingDraft.maximum} keyboardType="number-pad" maxLength={6}
+                onChangeText={(maximum) => setPricingDraft({ ...pricingDraft, maximum: maximum.replace(/\D/g, "") })} />
+              <Field label={t("Maximum total per booking (₹)", "प्रति बुकिंग अधिकतम कीमत (₹)")} value={pricingDraft.quoteMaximum} keyboardType="number-pad" maxLength={6}
+                onChangeText={(quoteMaximum) => setPricingDraft({ ...pricingDraft, quoteMaximum: quoteMaximum.replace(/\D/g, "") })} />
+              <Field label={t("Reason or pricing benchmark", "कारण या तुलना की कीमत")} value={reason} onChangeText={setReason} maxLength={220} />
+              <Row>
+                <Button label={t("Publish limits", "सीमाएँ लागू करें")} disabled={busy || reason.trim().length < 3 || !Object.values(pricingDraft).every(Boolean)}
+                  onPress={() => void act("admin-price-limit", { service: limit.service, unit: limit.unit,
+                    minimum: Number(pricingDraft.minimum), maximum: Number(pricingDraft.maximum), quoteMaximum: Number(pricingDraft.quoteMaximum), reason })} />
+                <Button secondary disabled={busy} label={t("Cancel", "रद्द करें")} onPress={() => setConfirm("")} />
+              </Row>
+            </> : <Button secondary compact label={t("Edit limits", "सीमाएँ बदलें")} onPress={() => {
+              setPricingDraft({ minimum: String(limit.minimum), maximum: String(limit.maximum), quoteMaximum: String(limit.quoteMaximum) });
+              setReason(""); setConfirm(key);
+            }} />}
+          </Section>;
+        })}
+      </Panel>
       <Section><Heading size="medium">{t("Verification requests", "जाँच के अनुरोध")}</Heading>
         <Body>{t("Approve identity, background and skills before the worker can appear in customer search.", "ग्राहक खोज में प्रोफ़ाइल दिखाने से पहले पहचान, पृष्ठभूमि और कौशल की जाँच मंज़ूर करें।")}</Body>
         {!data.verification.length && <Body>{t("No requests waiting", "कोई अनुरोध बाकी नहीं")}</Body>}
@@ -120,7 +156,9 @@ export default function Admin() {
               onPress={() => void act("admin-report-resolve", { id: report.id, reason })} /><Button secondary label={t("Cancel", "रद्द करें")} onPress={() => setConfirm("")} /></Row></>
             : <Button secondary label={t("Record resolution", "समाधान दर्ज करें")} onPress={() => setConfirm("report:" + report.id)} />}</Panel>)}</Section>
       <Section><Heading size="medium">{t("Professionals", "काम करने वाले")}</Heading>
-        {data.professionals.map((person) => <Panel key={person.id}><Heading size="small">{person.name}</Heading><Body small>{person.service} · {person.trust.suspended ? t("Suspended", "निलंबित") : person.published ? t("Published", "प्रकाशित") : t("Paused", "रुका हुआ")}</Body>
+        {data.professionals.map((person) => <Panel key={person.id}><Heading size="small">{person.name}</Heading><Body small>{service(person.service, person.service)} · {person.trust.suspended ? t("Suspended", "निलंबित") : !person.published ? t("Paused", "रुका हुआ")
+          : person.pricingBlocked ? t("Rates outside ASAAN limits", "दरें आसान की सीमा से बाहर हैं")
+          : snapshot.state.requireVerification && !person.trust.eligible ? t("Verification required", "जाँच ज़रूरी") : t("Published", "प्रकाशित")}</Body>
           {confirm === "suspend:" + person.id ? <><Field label={t("Reason for action", "कार्रवाई का कारण")} value={reason} onChangeText={setReason} multiline maxLength={300} />
             <Row><Button danger disabled={busy || reason.trim().length < 10} label={person.trust.suspended ? t("Confirm reinstatement", "बहाली की पुष्टि करें") : t("Confirm suspension", "निलंबन की पुष्टि करें")}
               onPress={() => void act("admin-worker-suspend", { worker: person.id, suspended: !person.trust.suspended, reason })} />
