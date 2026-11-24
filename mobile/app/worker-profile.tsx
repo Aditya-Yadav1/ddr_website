@@ -38,8 +38,8 @@ export default function WorkerProfile() {
     profile?.serviceBasePoint && basePin ? { pin: basePin, point: profile.serviceBasePoint } : null);
   const [locating, setLocating] = useState(false);
   const [locationUnavailable, setLocationUnavailable] = useState(false);
-  const serviceBasePin = pinCodes.includes(basePin) ? basePin : pinCodes[0];
-  const serviceBasePoint = baseLocation?.pin === serviceBasePin ? baseLocation.point : null;
+  const serviceBasePin = pinCodes.includes(basePin) ? basePin : (pinCodes[0] ?? "");
+  const serviceBasePoint = baseLocation && baseLocation.pin === serviceBasePin ? baseLocation.point : null;
   const pilotRates = pinCodes.includes("110075") ? tasks.filter((task) => task.service === service && skills.includes(task.id))
     .flatMap((task) => {
       const rate = rateFor(task.service, task.task, "110075");
